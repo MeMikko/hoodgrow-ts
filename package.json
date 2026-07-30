@@ -1,0 +1,58 @@
+{
+  "name": "hoodgrow",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the HoodGrow Robinhood Chain stock token API — live price, corporate-action adjusted supply, DeFi depth (Morpho/Uniswap), and corporate actions. Pay per call via x402 (USDC on Base) or a bearer API key.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "hoodgrow",
+    "x402",
+    "robinhood-chain",
+    "stock-tokens",
+    "tokenized-equities",
+    "defi",
+    "morpho",
+    "uniswap",
+    "agent",
+    "ai-agent"
+  ],
+  "license": "MIT",
+  "author": "HoodGrow",
+  "homepage": "https://www.hoodgrow.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MeMikko/hoodgrow-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MeMikko/hoodgrow-ts/issues"
+  },
+  "dependencies": {
+    "@x402/core": "^2.20.0",
+    "@x402/evm": "^2.20.0",
+    "@x402/fetch": "^2.20.0",
+    "viem": "^2.55.10"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.1",
+    "typescript": "^5"
+  }
+}
