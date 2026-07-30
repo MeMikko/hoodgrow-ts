@@ -1,0 +1,42 @@
+name: Publish to npm
+
+# Fires when a GitHub Release is published (Releases -> Draft a new
+# release -> tag e.g. v0.1.0 -> Publish release) — doable entirely from a
+# phone browser or the GitHub app, no local CLI needed.
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Enables npm provenance (a verifiable "built by this exact
+      # workflow run" attestation on the published package) regardless of
+      # whether NPM_TOKEN is a classic token or you later migrate to
+      # npm Trusted Publishing.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      # First publish of a brand-new package name needs a real token — npm
+      # only lets you configure Trusted Publishing (OIDC, no token) for a
+      # package that already exists. Add one at
+      # npmjs.com -> Avatar -> Access Tokens -> Generate New Token ->
+      # Automation, then paste it as this repo's NPM_TOKEN secret
+      # (Settings -> Secrets and variables -> Actions -> New repository
+      # secret). Once v0.1.0 is live, you can switch npmjs.com's package
+      # settings to Trusted Publishing and drop this secret entirely.
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
