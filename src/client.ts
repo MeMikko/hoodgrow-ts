@@ -18,7 +18,7 @@ export interface HoodGrowClientOptions {
   /**
    * A viem `LocalAccount` (e.g. from `privateKeyToAccount`, or a KMS/HSM-
    * backed custom account that can sign locally) used to auto-pay per
-   * call via x402 — USDC on Base, $0.50 for the full catalog, $0.05 for a
+   * call via x402 — USDC on Base, $0.10 for the full catalog, $0.05 for a
    * single token. A JSON-RPC/browser-wallet account won't work here; x402
    * needs a signer that can sign typed data without a user prompt. Every
    * payment this client makes is real money; never hardcode a raw private
@@ -92,7 +92,7 @@ export class HoodGrowClient {
   /**
    * The full token catalog — every listed Robinhood Chain stock token,
    * with price, corporate-action adjusted supply, and DeFi depth.
-   * $0.50/call via x402, free with an API key.
+   * $0.10/call via x402, free with an API key.
    */
   async getCatalog(): Promise<CatalogResponse> {
     return this.request<CatalogResponse>("/api/agent/tokens");
