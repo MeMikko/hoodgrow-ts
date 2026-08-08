@@ -57,10 +57,15 @@ Exactly one of `apiKey` / `signer` is required.
 | `getCatalog()` | $0.10 | Every listed token: price, source, 24h change, corporate-action adjusted supply, DeFi depth, plus catalog-wide pending/recent corporate actions |
 | `getToken(symbol)` | $0.05 | One token, same fields, scoped |
 | `getCorporateActions(symbol?)` | uses `getToken`/`getCatalog` above | `{ pending, recent }` — pass a symbol to scope, omit for every tracked token |
+| `getDefi(symbol)` | $0.05 | Every Morpho market this token participates in (loan OR collateral role) plus its Uniswap V3 pools — not just the single best-APY figure bundled into `getCatalog`/`getToken` |
+| `getHolders(symbol, limit?)` | $0.05 | Holder-count trend, 24h net supply change (real mint/burn), and top-holder concentration (`limit` caps how many holders to return, 1-50, defaults to 10) |
+| `getSlippage(symbol, amountUsd, side)` | $0.05 | How much a USD-sized trade (`side: "buy" \| "sell"`) would move the price, per Uniswap V3 pool — `bestPoolAddress`/`bestEffectivePrice` pick the best one for you |
 
 Full response shapes are exported as types (`CatalogResponse`,
 `TokenDetailResponse`, `TokenSummary`, `DefiInfo`, `PendingCorporateAction`,
-`RecentCorporateAction`).
+`RecentCorporateAction`, `DefiDetailResponse`, `DefiMarket`, `DefiPool`,
+`HoldersResponse`, `TopHolder`, `SupplyChange24h`, `SlippageResponse`,
+`SlippagePoolResult`, `SlippageSide`).
 
 A failed request (any non-2xx HoodGrow itself returns, after x402 payment
 handling — an unknown symbol, a server error) throws `HoodGrowError` with

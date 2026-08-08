@@ -95,3 +95,111 @@ export interface CorporateActions {
   pending: PendingCorporateAction[];
   recent: RecentCorporateAction[];
 }
+
+/** One Morpho market a token participates in — as the loan asset OR as
+ * collateral (a token can appear in multiple markets in either role). */
+export interface DefiMarket {
+  marketId: string;
+  role: "loan" | "collateral";
+  /** The OTHER asset in this market. `null` if that side's symbol was
+   * never recorded server-side. */
+  counterpartSymbol: string | null;
+  /** Percent, e.g. 4.82 for 4.82%. */
+  supplyApy: number | null;
+  borrowApy: number | null;
+  tvlUsd: number | null;
+  ts: string;
+}
+
+export interface DefiPool {
+  poolAddress: string;
+  tvlUsd: number | null;
+  volume24hUsd: number | null;
+  /** Pips, e.g. 3000 = 0.3%. */
+  feeTierBps: number | null;
+  ts: string;
+}
+
+/** GET /api/agent/defi/{symbol} — every Morpho market and Uniswap V3 pool
+ * a token participates in, not just the single best-APY figure bundled
+ * into CatalogResponse/TokenDetailResponse's `defi` field. */
+export interface DefiDetailResponse {
+  chainId: number;
+  symbol: string;
+  updatedAt: string;
+  morphoMarkets: DefiMarket[];
+  uniswapPools: DefiPool[];
+}
+
+export interface TopHolder {
+  address: string;
+  balance: number;
+  /** Share of total supply, 0-100. `null` if total supply isn't known. */
+  percentOfSupply: number | null;
+}
+
+/** Net total_supply change over ~24h — a real mint/burn proxy (creation/
+ * redemption of the underlying tokenized shares), distinct from a
+ * corporate-action multiplier change. */
+export interface SupplyChange24h {
+  supplyNow: number;
+  supplyRef: number;
+  changePercent: number;
+  refTs: string;
+}
+
+/** GET /api/agent/holders/{symbol} — holder-count trend, 24h net supply
+ * change, and top-holder concentration. */
+export interface HoldersResponse {
+  chainId: number;
+  symbol: string;
+  updatedAt: string;
+  holderCount: number | null;
+  holderCountDelta: number | null;
+  holderCountDeltaSinceTs: string | null;
+  holderSnapshotTs: string | null;
+  supplyChange24h: SupplyChange24h | null;
+  topHolders: {
+    snapshotTs: string | null;
+    totalHolders: number;
+    holders: TopHolder[];
+  };
+}
+
+export type SlippageSide = "buy" | "sell";
+
+/** One pool's price-impact estimate, OR an error explaining why that pool
+ * couldn't be priced (`error` set, all the numeric fields absent) — never
+ * both. */
+export interface SlippagePoolResult {
+  poolAddress: string;
+  feeTier: number | null;
+  snapshotTs: string;
+  error?: string;
+  amountOut?: number;
+  feeAmountUsd?: number;
+  midPriceBefore?: number;
+  midPriceAfter?: number;
+  effectivePrice?: number;
+  priceImpactPercent?: number;
+  /** `null` means "can't tell" (unrecognized fee tier); `true` means this
+   * pool's estimate likely UNDERSTATES real slippage for this trade size. */
+  likelyCrossesTick?: boolean | null;
+}
+
+/** GET /api/agent/slippage/{symbol} — how much a USD-sized trade would
+ * move the price, per Uniswap V3 pool. Per-pool, not an optimal
+ * multi-pool route/split — see `note`. */
+export interface SlippageResponse {
+  chainId: number;
+  symbol: string;
+  side: SlippageSide;
+  amountUsd: number;
+  updatedAt: string;
+  /** The pool with the lowest priceImpactPercent among the ones that
+   * priced successfully. `null` if none did. */
+  bestPoolAddress: string | null;
+  bestEffectivePrice: number | null;
+  pools: SlippagePoolResult[];
+  note: string;
+}

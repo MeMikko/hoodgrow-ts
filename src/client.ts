@@ -2,7 +2,15 @@ import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import type { LocalAccount } from "viem";
 
-import type { CatalogResponse, CorporateActions, TokenDetailResponse } from "./types.js";
+import type {
+  CatalogResponse,
+  CorporateActions,
+  DefiDetailResponse,
+  HoldersResponse,
+  SlippageResponse,
+  SlippageSide,
+  TokenDetailResponse,
+} from "./types.js";
 
 const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
@@ -122,5 +130,52 @@ export class HoodGrowClient {
       pending: data.pendingCorporateActions,
       recent: data.recentCorporateActions,
     };
+  }
+
+  /**
+   * Every Morpho market this token participates in (loan OR collateral
+   * role) plus its Uniswap V3 pools — the full picture, not just the
+   * single best-APY figure bundled into getCatalog/getToken. $0.05/call
+   * via x402, free with an API key. Rejects with a 404 HoodGrowError for
+   * an unknown symbol.
+   */
+  async getDefi(symbol: string): Promise<DefiDetailResponse> {
+    return this.request<DefiDetailResponse>(
+      `/api/agent/defi/${encodeURIComponent(symbol.toUpperCase())}`
+    );
+  }
+
+  /**
+   * Holder-count trend, 24h net total_supply change (real mint/burn —
+   * creation/redemption of the underlying tokenized shares, distinct from
+   * a corporate-action multiplier change), and top-holder concentration.
+   * `limit` caps how many top holders to return (1-50; the server
+   * defaults to 10 if omitted). $0.05/call via x402, free with an API
+   * key. Rejects with a 404 HoodGrowError for an unknown symbol.
+   */
+  async getHolders(symbol: string, limit?: number): Promise<HoldersResponse> {
+    const query = limit !== undefined ? `?limit=${encodeURIComponent(String(limit))}` : "";
+    return this.request<HoldersResponse>(
+      `/api/agent/holders/${encodeURIComponent(symbol.toUpperCase())}${query}`
+    );
+  }
+
+  /**
+   * Price-impact / slippage estimate for a USD-sized trade, per Uniswap
+   * V3 pool this token trades on. `side: "buy"` spends USDG for the stock
+   * token; `"sell"` spends the stock token for USDG. Per-pool, not an
+   * optimal multi-pool route/split — see the response's `note`. $0.05/call
+   * via x402, free with an API key. Rejects with a 404 HoodGrowError for
+   * an unknown symbol.
+   */
+  async getSlippage(
+    symbol: string,
+    amountUsd: number,
+    side: SlippageSide
+  ): Promise<SlippageResponse> {
+    const query = `?amountUsd=${encodeURIComponent(String(amountUsd))}&side=${encodeURIComponent(side)}`;
+    return this.request<SlippageResponse>(
+      `/api/agent/slippage/${encodeURIComponent(symbol.toUpperCase())}${query}`
+    );
   }
 }

@@ -197,3 +197,103 @@ test("baseUrl override is respected", async () => {
   );
   assert.equal(capturedUrl, "http://localhost:3000/api/agent/tokens");
 });
+
+test("getDefi upper-cases the symbol and hits the defi endpoint", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          symbol: "NVDA",
+          updatedAt: "2026-08-08T00:00:00.000Z",
+          morphoMarkets: [
+            {
+              marketId: "0xabc",
+              role: "collateral",
+              counterpartSymbol: "USDG",
+              supplyApy: 0.0482,
+              borrowApy: 0.061,
+              tvlUsd: 1284000,
+              ts: "2026-08-08T00:00:00.000Z",
+            },
+          ],
+          uniswapPools: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getDefi("nvda");
+      assert.equal(result.morphoMarkets.length, 1);
+      assert.equal(result.morphoMarkets[0].role, "collateral");
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/defi/NVDA");
+});
+
+test("getHolders omits the limit query param when not passed, includes it when passed", async () => {
+  const urls: string[] = [];
+  const holdersBody = JSON.stringify({
+    chainId: 4663,
+    symbol: "NVDA",
+    updatedAt: "2026-08-08T00:00:00.000Z",
+    holderCount: 1342,
+    holderCountDelta: 12,
+    holderCountDeltaSinceTs: "2026-08-07T00:00:00.000Z",
+    holderSnapshotTs: "2026-08-08T00:00:00.000Z",
+    supplyChange24h: null,
+    topHolders: { snapshotTs: "2026-08-08T00:00:00.000Z", totalHolders: 1342, holders: [] },
+  });
+  await withGlobalFetch(
+    mockFetch((url) => {
+      urls.push(url);
+      return new Response(holdersBody, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getHolders("nvda");
+      assert.equal(result.holderCount, 1342);
+      await client.getHolders("nvda", 25);
+    }
+  );
+  assert.equal(urls[0], "https://www.hoodgrow.com/api/agent/holders/NVDA");
+  assert.equal(urls[1], "https://www.hoodgrow.com/api/agent/holders/NVDA?limit=25");
+});
+
+test("getSlippage builds the query string with amountUsd and side", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          symbol: "NVDA",
+          side: "buy",
+          amountUsd: 10000,
+          updatedAt: "2026-08-08T00:00:00.000Z",
+          bestPoolAddress: "0xpool",
+          bestEffectivePrice: 185.68,
+          pools: [],
+          note: "Per-pool estimate, not an optimal multi-pool route/split.",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getSlippage("nvda", 10000, "buy");
+      assert.equal(result.bestPoolAddress, "0xpool");
+    }
+  );
+  assert.equal(
+    capturedUrl,
+    "https://www.hoodgrow.com/api/agent/slippage/NVDA?amountUsd=10000&side=buy"
+  );
+});
