@@ -7,6 +7,8 @@ import type {
   CorporateActions,
   DefiDetailResponse,
   HoldersResponse,
+  OhlcInterval,
+  OhlcResponse,
   SlippageResponse,
   SlippageSide,
   TokenDetailResponse,
@@ -176,6 +178,38 @@ export class HoodGrowClient {
     const query = `?amountUsd=${encodeURIComponent(String(amountUsd))}&side=${encodeURIComponent(side)}`;
     return this.request<SlippageResponse>(
       `/api/agent/slippage/${encodeURIComponent(symbol.toUpperCase())}${query}`
+    );
+  }
+
+  /**
+   * OHLC price candles for backtesting, bucketed server-side from price
+   * history already collected every ~15 min. `interval` is `"1h"`,
+   * `"4h"`, or `"1d"` — the finest granularity meaningful at that
+   * collection cadence. `from`/`to` default to the last 30 days if
+   * omitted (accepts a `Date` or an ISO 8601 string); the window is
+   * capped at 730 days server-side. `limit` caps candles returned (1-1000,
+   * defaults to 500). Deliberately OHLC, not OHLCV — HoodGrow has no
+   * historical trading-volume time series to draw a volume field from.
+   * $0.05/call via x402, free with an API key. Rejects with a 404
+   * HoodGrowError for an unknown symbol.
+   */
+  async getOhlc(
+    symbol: string,
+    interval: OhlcInterval,
+    options?: { from?: Date | string; to?: Date | string; limit?: number }
+  ): Promise<OhlcResponse> {
+    const params = new URLSearchParams({ interval });
+    if (options?.from !== undefined) {
+      params.set("from", options.from instanceof Date ? options.from.toISOString() : options.from);
+    }
+    if (options?.to !== undefined) {
+      params.set("to", options.to instanceof Date ? options.to.toISOString() : options.to);
+    }
+    if (options?.limit !== undefined) {
+      params.set("limit", String(options.limit));
+    }
+    return this.request<OhlcResponse>(
+      `/api/agent/ohlc/${encodeURIComponent(symbol.toUpperCase())}?${params.toString()}`
     );
   }
 }

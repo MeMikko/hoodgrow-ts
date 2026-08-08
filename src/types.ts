@@ -203,3 +203,31 @@ export interface SlippageResponse {
   pools: SlippagePoolResult[];
   note: string;
 }
+
+export type OhlcInterval = "1h" | "4h" | "1d";
+
+export interface OhlcCandle {
+  bucketStart: string; // ISO
+  bucketEndExclusive: string; // ISO — bucketStart + interval
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** How many raw ~15-min price snapshots contributed to this candle — a
+   * low count (e.g. 1) means a thinner spread, not a data error. */
+  sampleCount: number;
+}
+
+/** GET /api/agent/ohlc/{symbol} — OHLC price candles for backtesting.
+ * Deliberately OHLC, not OHLCV: HoodGrow has no historical trading-volume
+ * time series to draw a volume field from, so none is included. */
+export interface OhlcResponse {
+  chainId: number;
+  symbol: string;
+  interval: OhlcInterval;
+  from: string;
+  to: string;
+  updatedAt: string;
+  candles: OhlcCandle[];
+  note: string;
+}

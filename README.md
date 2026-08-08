@@ -60,12 +60,14 @@ Exactly one of `apiKey` / `signer` is required.
 | `getDefi(symbol)` | $0.05 | Every Morpho market this token participates in (loan OR collateral role) plus its Uniswap V3 pools — not just the single best-APY figure bundled into `getCatalog`/`getToken` |
 | `getHolders(symbol, limit?)` | $0.05 | Holder-count trend, 24h net supply change (real mint/burn), and top-holder concentration (`limit` caps how many holders to return, 1-50, defaults to 10) |
 | `getSlippage(symbol, amountUsd, side)` | $0.05 | How much a USD-sized trade (`side: "buy" \| "sell"`) would move the price, per Uniswap V3 pool — `bestPoolAddress`/`bestEffectivePrice` pick the best one for you |
+| `getOhlc(symbol, interval, options?)` | $0.05 | OHLC price candles for backtesting (`interval: "1h" \| "4h" \| "1d"`; `options: { from?, to?, limit? }`, `from`/`to` accept a `Date` or ISO string, default to the last 30 days). **OHLC only, no volume** — HoodGrow has no historical trading-volume time series to draw a volume field from |
 
 Full response shapes are exported as types (`CatalogResponse`,
 `TokenDetailResponse`, `TokenSummary`, `DefiInfo`, `PendingCorporateAction`,
 `RecentCorporateAction`, `DefiDetailResponse`, `DefiMarket`, `DefiPool`,
 `HoldersResponse`, `TopHolder`, `SupplyChange24h`, `SlippageResponse`,
-`SlippagePoolResult`, `SlippageSide`).
+`SlippagePoolResult`, `SlippageSide`, `OhlcResponse`, `OhlcCandle`,
+`OhlcInterval`).
 
 A failed request (any non-2xx HoodGrow itself returns, after x402 payment
 handling — an unknown symbol, a server error) throws `HoodGrowError` with

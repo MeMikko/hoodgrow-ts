@@ -297,3 +297,90 @@ test("getSlippage builds the query string with amountUsd and side", async () => 
     "https://www.hoodgrow.com/api/agent/slippage/NVDA?amountUsd=10000&side=buy"
   );
 });
+
+const OHLC_BODY = JSON.stringify({
+  chainId: 4663,
+  symbol: "NVDA",
+  interval: "1d",
+  from: "2026-07-09T00:00:00.000Z",
+  to: "2026-08-08T00:00:00.000Z",
+  updatedAt: "2026-08-08T00:00:00.000Z",
+  candles: [
+    {
+      bucketStart: "2026-08-07T00:00:00.000Z",
+      bucketEndExclusive: "2026-08-08T00:00:00.000Z",
+      open: 184.2,
+      high: 187.5,
+      low: 183.9,
+      close: 185.65,
+      sampleCount: 92,
+    },
+  ],
+  note: "OHLC only, no volume.",
+});
+
+test("getOhlc sends only interval when from/to/limit are omitted", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(OHLC_BODY, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getOhlc("nvda", "1d");
+      assert.equal(result.candles.length, 1);
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/ohlc/NVDA?interval=1d");
+});
+
+test("getOhlc serializes from/to Dates as ISO strings and passes limit through", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(OHLC_BODY, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.getOhlc("nvda", "1h", {
+        from: new Date("2026-08-01T00:00:00.000Z"),
+        to: new Date("2026-08-08T00:00:00.000Z"),
+        limit: 200,
+      });
+    }
+  );
+  const url = new URL(capturedUrl);
+  assert.equal(url.pathname, "/api/agent/ohlc/NVDA");
+  assert.equal(url.searchParams.get("interval"), "1h");
+  assert.equal(url.searchParams.get("from"), "2026-08-01T00:00:00.000Z");
+  assert.equal(url.searchParams.get("to"), "2026-08-08T00:00:00.000Z");
+  assert.equal(url.searchParams.get("limit"), "200");
+});
+
+test("getOhlc accepts from/to as plain ISO strings too", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(OHLC_BODY, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.getOhlc("nvda", "4h", { from: "2026-08-01T00:00:00.000Z" });
+    }
+  );
+  const url = new URL(capturedUrl);
+  assert.equal(url.searchParams.get("from"), "2026-08-01T00:00:00.000Z");
+  assert.equal(url.searchParams.has("to"), false);
+});
