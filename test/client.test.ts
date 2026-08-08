@@ -384,3 +384,40 @@ test("getOhlc accepts from/to as plain ISO strings too", async () => {
   assert.equal(url.searchParams.get("from"), "2026-08-01T00:00:00.000Z");
   assert.equal(url.searchParams.has("to"), false);
 });
+
+test("getBaseTokens hits the Base registry endpoint and returns the pre-launch note", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 8453,
+          updatedAt: "2026-08-08T12:00:00.000Z",
+          note: "PRE-LAUNCH: ...",
+          tokens: [
+            {
+              symbol: "AAPL",
+              name: "Apple Inc.",
+              address: "0xb200000000000000000000C2e324d24d7eEcd1fb",
+              decimals: 8,
+              status: "pre_launch",
+              totalSupplyRaw: "0",
+              totalSupply: 0,
+              checkedAt: "2026-08-08T12:00:00.000Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getBaseTokens();
+      assert.equal(result.chainId, 8453);
+      assert.equal(result.tokens.length, 1);
+      assert.equal(result.tokens[0].status, "pre_launch");
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/base/tokens");
+});

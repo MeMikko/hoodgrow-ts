@@ -231,3 +231,31 @@ export interface OhlcResponse {
   candles: OhlcCandle[];
   note: string;
 }
+
+export type BaseTokenStatus = "pre_launch" | "live";
+
+/** One Base (chain 8453) B20 native-equity token. `status` flips from
+ * "pre_launch" to "live" automatically once real supply appears on-chain
+ * — a "pre_launch" entry is not tradable: no price, no DEX liquidity, no
+ * holders exist for it yet. */
+export interface BaseToken {
+  symbol: string;
+  name: string;
+  address: string;
+  decimals: number;
+  status: BaseTokenStatus;
+  totalSupplyRaw: string;
+  totalSupply: number;
+  checkedAt: string | null;
+}
+
+/** GET /api/agent/base/tokens — Base mainnet B20 native-equity-token
+ * registry, a much smaller sibling of CatalogResponse (Robinhood Chain).
+ * See `note` and each token's `status` before treating any entry as
+ * tradable. */
+export interface BaseTokensResponse {
+  chainId: number;
+  updatedAt: string;
+  note: string;
+  tokens: BaseToken[];
+}

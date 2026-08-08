@@ -3,6 +3,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/client";
 import type { LocalAccount } from "viem";
 
 import type {
+  BaseTokensResponse,
   CatalogResponse,
   CorporateActions,
   DefiDetailResponse,
@@ -211,5 +212,18 @@ export class HoodGrowClient {
     return this.request<OhlcResponse>(
       `/api/agent/ohlc/${encodeURIComponent(symbol.toUpperCase())}?${params.toString()}`
     );
+  }
+
+  /**
+   * Base mainnet (chain 8453) B20 native-equity-token registry — a much
+   * smaller sibling of getCatalog (Robinhood Chain). PRE-LAUNCH: check
+   * each token's `status` before treating it as tradable — "pre_launch"
+   * means verified on-chain metadata but zero minted supply, so no price,
+   * no DEX liquidity, no holders exist for it yet; it flips to "live"
+   * automatically once real supply appears on-chain. $0.05/call via x402,
+   * free with an API key.
+   */
+  async getBaseTokens(): Promise<BaseTokensResponse> {
+    return this.request<BaseTokensResponse>("/api/agent/base/tokens");
   }
 }

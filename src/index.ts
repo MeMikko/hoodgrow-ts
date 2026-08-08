@@ -1,6 +1,9 @@
 export { HoodGrowClient, HoodGrowError } from "./client.js";
 export type { HoodGrowClientOptions } from "./client.js";
 export type {
+  BaseToken,
+  BaseTokensResponse,
+  BaseTokenStatus,
   CatalogResponse,
   CorporateActions,
   DefiDetailResponse,
