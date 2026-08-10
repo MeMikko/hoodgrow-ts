@@ -44,10 +44,43 @@ const catalog = await client.getCatalog();
 Get a key from HoodGrow directly — see
 [hoodgrow.com/api-access](https://www.hoodgrow.com/api-access).
 
+## Quick start — prepaid credits (cheaper than x402 per call, still no signup)
+
+Buy a dollar-denominated credit balance once via x402, then spend it down
+over many calls with a cheap off-chain wallet signature instead of a fresh
+on-chain payment every time:
+
+```ts
+import { HoodGrowClient } from "hoodgrow";
+import { privateKeyToAccount } from "viem/accounts";
+
+const signer = privateKeyToAccount(process.env.AGENT_PRIVATE_KEY as `0x${string}`);
+
+// One-time: pay via x402 for a bundle. Bundle ids/prices: client.listCreditBundles().
+const payingClient = new HoodGrowClient({ signer });
+await payingClient.buyCredits("50"); // pay $50, receive $60 of credit
+
+// From then on: spend the balance instead of paying x402 per call.
+const client = new HoodGrowClient({ signer, useCredits: true });
+const catalog = await client.getCatalog(); // debits $0.10 from the balance, no on-chain tx
+
+const { balanceUsd } = await client.getCreditBalance(); // free, doesn't spend anything
+```
+
+A credit spend is a different mechanism from x402 entirely — a short,
+single-use, ~60-second-lived signed message, not an on-chain payment — so it
+costs no gas and settles instantly. It only ever authenticates against
+`www.hoodgrow.com`; nothing here signs a payment authorization.
+
 ## API
 
 ```ts
-new HoodGrowClient({ apiKey?: string; signer?: LocalAccount; baseUrl?: string })
+new HoodGrowClient({
+  apiKey?: string;
+  signer?: LocalAccount;
+  baseUrl?: string;
+  useCredits?: boolean; // spend prepaid credit instead of x402 per call — requires signer + buyCredits() first
+})
 ```
 
 Exactly one of `apiKey` / `signer` is required.
@@ -62,13 +95,17 @@ Exactly one of `apiKey` / `signer` is required.
 | `getSlippage(symbol, amountUsd, side)` | $0.05 | How much a USD-sized trade (`side: "buy" \| "sell"`) would move the price, per Uniswap V3 pool — `bestPoolAddress`/`bestEffectivePrice` pick the best one for you |
 | `getOhlc(symbol, interval, options?)` | $0.05 | OHLC price candles for backtesting (`interval: "1h" \| "4h" \| "1d"`; `options: { from?, to?, limit? }`, `from`/`to` accept a `Date` or ISO string, default to the last 30 days). **OHLC only, no volume** — HoodGrow has no historical trading-volume time series to draw a volume field from |
 | `getBaseTokens()` | $0.05 | Base mainnet (chain 8453) B20 native-equity-token registry — a much smaller sibling of `getCatalog`. **Pre-launch**: check each token's `status` (`"pre_launch" \| "live"`) before treating it as tradable — `"pre_launch"` means no price, no DEX liquidity, no holders exist for it yet |
+| `listCreditBundles()` | free | Current prepaid credit bundle catalog (`{ [id]: { priceUsd, creditUsd } }`) — no auth required |
+| `buyCredits(bundleId)` | one x402 payment | Pays for one bundle; requires `signer`. Balance lands once settlement confirms — see `getCreditBalance()` |
+| `getCreditBalance()` | free | This wallet's current credit balance; requires `signer` |
 
 Full response shapes are exported as types (`CatalogResponse`,
 `TokenDetailResponse`, `TokenSummary`, `DefiInfo`, `PendingCorporateAction`,
 `RecentCorporateAction`, `DefiDetailResponse`, `DefiMarket`, `DefiPool`,
 `HoldersResponse`, `TopHolder`, `SupplyChange24h`, `SlippageResponse`,
 `SlippagePoolResult`, `SlippageSide`, `OhlcResponse`, `OhlcCandle`,
-`OhlcInterval`, `BaseTokensResponse`, `BaseToken`, `BaseTokenStatus`).
+`OhlcInterval`, `BaseTokensResponse`, `BaseToken`, `BaseTokenStatus`,
+`CreditBundle`, `CreditPurchaseAck`, `CreditBalance`).
 
 A failed request (any non-2xx HoodGrow itself returns, after x402 payment
 handling — an unknown symbol, a server error) throws `HoodGrowError` with

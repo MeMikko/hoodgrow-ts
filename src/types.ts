@@ -259,3 +259,29 @@ export interface BaseTokensResponse {
   note: string;
   tokens: BaseToken[];
 }
+
+/** One prepaid credit bundle offer — pay `priceUsd` once via x402, receive
+ * `creditUsd` of spendable balance (creditUsd >= priceUsd; the difference
+ * is the bundle's bonus). See HoodGrowClient.listCreditBundles/buyCredits. */
+export interface CreditBundle {
+  priceUsd: number;
+  creditUsd: number;
+}
+
+/** POST /api/agent/credits/purchase response — an acknowledgment, not a
+ * confirmed balance: the actual credit lands once x402 settlement
+ * confirms server-side (normally before this response arrives). See
+ * HoodGrowClient.getCreditBalance to confirm. */
+export interface CreditPurchaseAck {
+  ok: true;
+  bundle: string;
+  priceUsd: number;
+  creditUsd: number;
+  note: string;
+}
+
+/** GET /api/agent/credits/balance response. */
+export interface CreditBalance {
+  walletAddress: string;
+  balanceUsd: number;
+}
