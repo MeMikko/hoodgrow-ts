@@ -6,6 +6,9 @@ import type {
   BaseTokensResponse,
   CatalogResponse,
   CorporateActions,
+  CreditBalance,
+  CreditBundle,
+  CreditPurchaseAck,
   DefiDetailResponse,
   HoldersResponse,
   OhlcInterval,
@@ -41,6 +44,18 @@ export interface HoodGrowClientOptions {
   /** Override the API base URL — for testing against a non-production
    * deployment. Defaults to https://www.hoodgrow.com. */
   baseUrl?: string;
+  /**
+   * When true AND `signer` is set, every metered call is authenticated by
+   * spending from that wallet's prepaid credit balance (see buyCredits())
+   * instead of a fresh x402 payment — a lightweight signed message, no
+   * gas, no facilitator round trip. Defaults to false, so an existing
+   * `signer`-only client keeps paying x402 per call exactly as before;
+   * only opt in once you've actually bought credits for this wallet
+   * (calling with an empty balance fails the call with a 402
+   * HoodGrowError instead of falling back to x402). Ignored when `apiKey`
+   * is set — bearer-key calls are already free.
+   */
+  useCredits?: boolean;
 }
 
 /** Thrown for any non-2xx response other than a 402 x402 handles itself. */
@@ -64,10 +79,14 @@ export class HoodGrowClient {
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly headers: Record<string, string>;
+  private readonly signer?: LocalAccount;
+  private readonly useCredits: boolean;
 
   constructor(options: HoodGrowClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.headers = {};
+    this.signer = options.signer;
+    this.useCredits = Boolean(options.useCredits && options.signer && !options.apiKey);
 
     if (options.apiKey) {
       this.headers.Authorization = `Bearer ${options.apiKey}`;
@@ -82,8 +101,42 @@ export class HoodGrowClient {
     }
   }
 
+  /**
+   * Off-chain wallet-signature auth for a credit-funded call — mirrors the
+   * server's own buildCreditAuthMessage exactly (HoodGrow/src/lib/
+   * creditAuth.ts): method + pathname (no query string, no host) +
+   * a fresh unix-second timestamp, EIP-191 `personal_sign`'d by `signer`.
+   * The signature is single-use server-side (replay is rejected) and only
+   * valid for ~60 seconds, so it's generated fresh per call, never cached.
+   */
+  private async signCreditAuthHeaders(
+    method: string,
+    pathWithQuery: string
+  ): Promise<Record<string, string>> {
+    if (!this.signer) {
+      throw new Error("credit auth requires a `signer`");
+    }
+    const pathname = pathWithQuery.split("?")[0];
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const message = `HoodGrow credit spend\nmethod: ${method.toUpperCase()}\npath: ${pathname}\ntimestamp: ${timestamp}`;
+    const signature = await this.signer.signMessage({ message });
+    return {
+      "X-HoodGrow-Credit-Wallet": this.signer.address,
+      "X-HoodGrow-Credit-Timestamp": timestamp,
+      "X-HoodGrow-Credit-Signature": signature,
+    };
+  }
+
   private async request<T>(path: string): Promise<T> {
-    const res = await this.fetchFn(`${this.baseUrl}${path}`, { headers: this.headers });
+    // A credit-spend call is NOT an x402 payment — it must bypass the
+    // payment-wrapping fetchFn entirely (which otherwise reconstructs its
+    // own request and drops these custom headers) and use the plain global
+    // fetch instead, same as getCreditBalance()/buyCredits() already do.
+    const headers = this.useCredits
+      ? { ...this.headers, ...(await this.signCreditAuthHeaders("GET", path)) }
+      : this.headers;
+    const fetchFn = this.useCredits ? fetch : this.fetchFn;
+    const res = await fetchFn(`${this.baseUrl}${path}`, { headers });
     if (!res.ok) {
       let body: unknown = null;
       try {
@@ -225,5 +278,81 @@ export class HoodGrowClient {
    */
   async getBaseTokens(): Promise<BaseTokensResponse> {
     return this.request<BaseTokensResponse>("/api/agent/base/tokens");
+  }
+
+  /**
+   * Lists the current prepaid credit bundles (id -> {priceUsd, creditUsd})
+   * — no payment, no auth, works without a `signer` or `apiKey` at all.
+   * See buyCredits() to actually purchase one.
+   */
+  async listCreditBundles(): Promise<Record<string, CreditBundle>> {
+    const res = await fetch(`${this.baseUrl}/api/agent/credits/purchase`);
+    if (!res.ok) {
+      throw new HoodGrowError(
+        `failed to list credit bundles: ${res.status} ${res.statusText}`,
+        res.status,
+        null
+      );
+    }
+    const body = (await res.json()) as { bundles: Record<string, CreditBundle> };
+    return body.bundles;
+  }
+
+  /**
+   * Pays for one prepaid credit bundle via x402 — requires `signer` (a
+   * bearer-key client is already free/unmetered, so buying credits makes
+   * no sense for it). The wallet's balance is credited server-side once
+   * settlement confirms, which normally completes before this call
+   * returns; call getCreditBalance() to be sure. After this, construct
+   * (or reconstruct) the client with `useCredits: true` to start spending
+   * the balance instead of paying x402 per call.
+   */
+  async buyCredits(bundleId: string): Promise<CreditPurchaseAck> {
+    if (!this.signer) {
+      throw new Error("buyCredits requires a `signer` — credit bundles are paid via x402");
+    }
+    const res = await this.fetchFn(
+      `${this.baseUrl}/api/agent/credits/purchase?bundle=${encodeURIComponent(bundleId)}`,
+      { method: "POST" }
+    );
+    if (!res.ok) {
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        // Non-JSON error body.
+      }
+      throw new HoodGrowError(
+        `credit purchase failed: ${res.status} ${res.statusText}`,
+        res.status,
+        body
+      );
+    }
+    return (await res.json()) as CreditPurchaseAck;
+  }
+
+  /**
+   * This wallet's current prepaid credit balance — free (no x402 charge,
+   * no credit spend), authenticated with the same wallet-signature scheme
+   * every credit-funded call uses. Requires `signer`.
+   */
+  async getCreditBalance(): Promise<CreditBalance> {
+    const path = "/api/agent/credits/balance";
+    const headers = await this.signCreditAuthHeaders("GET", path);
+    const res = await fetch(`${this.baseUrl}${path}`, { headers });
+    if (!res.ok) {
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        // Non-JSON error body.
+      }
+      throw new HoodGrowError(
+        `failed to fetch credit balance: ${res.status} ${res.statusText}`,
+        res.status,
+        body
+      );
+    }
+    return (await res.json()) as CreditBalance;
   }
 }

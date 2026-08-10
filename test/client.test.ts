@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { privateKeyToAccount } from "viem/accounts";
 
 import { HoodGrowClient, HoodGrowError } from "../src/index.js";
+
+/** Well-known public test private key (Hardhat/Anvil default account #0) —
+ * never funded, safe to hardcode in a test file. */
+const TEST_ACCOUNT = privateKeyToAccount(
+  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+);
 
 /** Minimal mock of the global fetch this client calls internally. */
 function mockFetch(handler: (url: string, init?: RequestInit) => Response): typeof fetch {
@@ -420,4 +427,82 @@ test("getBaseTokens hits the Base registry endpoint and returns the pre-launch n
     }
   );
   assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/base/tokens");
+});
+
+test("listCreditBundles fetches the bundle catalog with no auth", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ bundles: { "10": { priceUsd: 10, creditUsd: 11 } } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const bundles = await client.listCreditBundles();
+      assert.deepEqual(bundles, { "10": { priceUsd: 10, creditUsd: 11 } });
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/credits/purchase");
+});
+
+test("getCreditBalance requires a signer", async () => {
+  const client = new HoodGrowClient({ apiKey: "test-key-123" });
+  await assert.rejects(() => client.getCreditBalance(), /requires a `signer`/);
+});
+
+test("getCreditBalance signs the canonical message and sends credit-auth headers", async () => {
+  let capturedUrl = "";
+  let capturedHeaders: Record<string, string> = {};
+  await withGlobalFetch(
+    mockFetch((url, init) => {
+      capturedUrl = url;
+      capturedHeaders = (init?.headers as Record<string, string> | undefined) ?? {};
+      return new Response(
+        JSON.stringify({ walletAddress: TEST_ACCOUNT.address.toLowerCase(), balanceUsd: 5.5 }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ signer: TEST_ACCOUNT });
+      const balance = await client.getCreditBalance();
+      assert.equal(balance.balanceUsd, 5.5);
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/credits/balance");
+  assert.equal(capturedHeaders["X-HoodGrow-Credit-Wallet"], TEST_ACCOUNT.address);
+  assert.ok(capturedHeaders["X-HoodGrow-Credit-Signature"]?.startsWith("0x"));
+  assert.ok(Number(capturedHeaders["X-HoodGrow-Credit-Timestamp"]) > 0);
+});
+
+test("buyCredits requires a signer", async () => {
+  const client = new HoodGrowClient({ apiKey: "test-key-123" });
+  await assert.rejects(() => client.buyCredits("10"), /requires a `signer`/);
+});
+
+test("useCredits attaches signed credit-auth headers to a metered GET", async () => {
+  let capturedHeaders: Record<string, string> = {};
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      capturedHeaders = (init?.headers as Record<string, string> | undefined) ?? {};
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-07-30T00:00:00.000Z",
+          tokens: [],
+          pendingCorporateActions: [],
+          recentCorporateActions: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ signer: TEST_ACCOUNT, useCredits: true });
+      await client.getCatalog();
+    }
+  );
+  assert.equal(capturedHeaders["X-HoodGrow-Credit-Wallet"], TEST_ACCOUNT.address);
+  assert.ok(capturedHeaders["X-HoodGrow-Credit-Signature"]?.startsWith("0x"));
 });
