@@ -142,6 +142,67 @@ res.sendStatus(200);
 accepts the header with or without the `sha256=` prefix, and returns `false`
 (never throws) for a missing header, malformed signature, or any mismatch.
 
+## Agent-framework tools
+
+Wire HoodGrow into any function-calling agent. The SDK ships the same eight
+read tools the [`hoodgrow-mcp`](https://github.com/MeMikko/hoodgrow-mcp) server
+exposes — as **framework-agnostic definitions** (name + description + JSON
+Schema) plus a dispatcher — with zero extra dependencies:
+
+```ts
+import {
+  HoodGrowClient,
+  hoodgrowTools,          // readonly array: { name, description, parameters (JSON Schema) }
+  executeHoodGrowTool,    // (client, name, args, opts?) => Promise<result>
+  hoodgrowOpenAiTools,    // OpenAI `tools` format
+  hoodgrowAnthropicTools, // Anthropic `tools` format (input_schema)
+} from "hoodgrow";
+```
+
+**OpenAI** — pass the tools in, dispatch each call:
+
+```ts
+const client = new HoodGrowClient({ apiKey: process.env.HOODGROW_API_KEY });
+const res = await openai.chat.completions.create({
+  model: "gpt-4o",
+  messages,
+  tools: hoodgrowOpenAiTools(),
+});
+for (const call of res.choices[0].message.tool_calls ?? []) {
+  const result = await executeHoodGrowTool(client, call.function.name, JSON.parse(call.function.arguments));
+  // feed `result` back as a tool message…
+}
+```
+
+**Anthropic** — same idea with `hoodgrowAnthropicTools()` and `tool_use` blocks.
+
+**LangChain.js** — wrap each definition as a `DynamicStructuredTool` (or plain
+`tool`) whose `func` calls the dispatcher:
+
+```ts
+import { DynamicTool } from "@langchain/core/tools";
+const tools = hoodgrowTools.map((t) => new DynamicTool({
+  name: t.name,
+  description: t.description,
+  func: async (input) => JSON.stringify(await executeHoodGrowTool(client, t.name, JSON.parse(input || "{}"))),
+}));
+```
+
+**Vercel AI SDK** — build a tool set from the definitions using `jsonSchema()`:
+
+```ts
+import { jsonSchema } from "ai";
+const tools = Object.fromEntries(hoodgrowTools.map((t) => [t.name, {
+  description: t.description,
+  parameters: jsonSchema(t.parameters),
+  execute: (args) => executeHoodGrowTool(client, t.name, args),
+}]));
+```
+
+`executeHoodGrowTool` returns the same typed response the matching client
+method returns, throws `HoodGrowError` on an API failure, and takes an optional
+`RequestOptions` (e.g. `{ idempotencyKey }`) as its last argument.
+
 ## Payment safety
 
 x402 payments are real money and are **not** idempotent — retrying a timed-
