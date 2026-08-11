@@ -5,7 +5,10 @@ import type { LocalAccount } from "viem";
 import type {
   BaseTokensResponse,
   CatalogResponse,
+  CorporateActionEvent,
   CorporateActions,
+  CorporateActionsFeedOptions,
+  CorporateActionsFeedResponse,
   CreditBalance,
   CreditBundle,
   CreditPurchaseAck,
@@ -21,6 +24,25 @@ import type {
 const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
 const NETWORK = "eip155:8453";
+/** Upper bound on any single 429 backoff wait, so a hostile/huge Retry-After
+ * can't hang a caller indefinitely. */
+const MAX_RETRY_DELAY_MS = 30_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Delay before a 429 retry: honor `Retry-After` (seconds) when present and
+ * sane, else exponential backoff (0.5s, 1s, 2s, …), both capped. */
+function retryAfterMs(header: string | null, attempt: number): number {
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+    }
+  }
+  return Math.min(500 * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
+}
 
 export interface HoodGrowClientOptions {
   /**
@@ -56,6 +78,17 @@ export interface HoodGrowClientOptions {
    * is set — bearer-key calls are already free.
    */
   useCredits?: boolean;
+  /**
+   * Auto-retry `429 Too Many Requests` this many times, honoring the
+   * response's `Retry-After` header (capped, with a small exponential
+   * fallback). Defaults to `0` (no retry). **Only applied on the bearer
+   * `apiKey` path**, where calls are free and safe to repeat — it is
+   * deliberately ignored for the `signer` (x402) and credit paths, because
+   * an x402 payment is not idempotent and a blind retry after a paid call
+   * can pay twice. There, a `429` throws immediately; back off yourself
+   * using the thrown error's context.
+   */
+  maxRetries?: number;
 }
 
 /** Thrown for any non-2xx response other than a 402 x402 handles itself. */
@@ -81,12 +114,17 @@ export class HoodGrowClient {
   private readonly headers: Record<string, string>;
   private readonly signer?: LocalAccount;
   private readonly useCredits: boolean;
+  /** True on the free bearer path — the only path where a 429 is retried. */
+  private readonly usingApiKey: boolean;
+  private readonly maxRetries: number;
 
   constructor(options: HoodGrowClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.headers = {};
     this.signer = options.signer;
     this.useCredits = Boolean(options.useCredits && options.signer && !options.apiKey);
+    this.usingApiKey = Boolean(options.apiKey);
+    this.maxRetries = Math.max(0, Math.floor(options.maxRetries ?? 0));
 
     if (options.apiKey) {
       this.headers.Authorization = `Bearer ${options.apiKey}`;
@@ -128,16 +166,30 @@ export class HoodGrowClient {
   }
 
   private async request<T>(path: string): Promise<T> {
-    // A credit-spend call is NOT an x402 payment — it must bypass the
-    // payment-wrapping fetchFn entirely (which otherwise reconstructs its
-    // own request and drops these custom headers) and use the plain global
-    // fetch instead, same as getCreditBalance()/buyCredits() already do.
-    const headers = this.useCredits
-      ? { ...this.headers, ...(await this.signCreditAuthHeaders("GET", path)) }
-      : this.headers;
-    const fetchFn = this.useCredits ? fetch : this.fetchFn;
-    const res = await fetchFn(`${this.baseUrl}${path}`, { headers });
-    if (!res.ok) {
+    const url = `${this.baseUrl}${path}`;
+    // Retry a 429 ONLY on the free bearer path. x402/credit calls are not
+    // idempotent (a retry can pay twice / re-spend), so they get one shot.
+    const maxAttempts = this.usingApiKey ? this.maxRetries + 1 : 1;
+
+    for (let attempt = 1; ; attempt++) {
+      // A credit-spend call is NOT an x402 payment — it must bypass the
+      // payment-wrapping fetchFn entirely (which otherwise reconstructs its
+      // own request and drops these custom headers) and use the plain global
+      // fetch instead, same as getCreditBalance()/buyCredits() already do.
+      // Re-signed per attempt so a retry never replays a stale signature.
+      const headers = this.useCredits
+        ? { ...this.headers, ...(await this.signCreditAuthHeaders("GET", path)) }
+        : this.headers;
+      const fetchFn = this.useCredits ? fetch : this.fetchFn;
+      const res = await fetchFn(url, { headers });
+
+      if (res.ok) return (await res.json()) as T;
+
+      if (res.status === 429 && attempt < maxAttempts) {
+        await sleep(retryAfterMs(res.headers.get("retry-after"), attempt));
+        continue;
+      }
+
       let body: unknown = null;
       try {
         body = await res.json();
@@ -150,7 +202,6 @@ export class HoodGrowClient {
         body
       );
     }
-    return (await res.json()) as T;
   }
 
   /**
@@ -186,6 +237,55 @@ export class HoodGrowClient {
       pending: data.pendingCorporateActions,
       recent: data.recentCorporateActions,
     };
+  }
+
+  /**
+   * One page of the filterable, cursor-paginated corporate-actions **event
+   * log** (`GET /api/corporate-actions`) — the cross-symbol append-only feed
+   * with detection metadata (block, tx hash, `detectedAt`), distinct from the
+   * pending/recent bundle {@link getCorporateActions} returns for a single
+   * token. Filter by `symbol`/`contract`/`status`/`from`/`to`; page with
+   * `pagination.nextCursor`, or use {@link iterateCorporateActions} to walk
+   * every page automatically. $0.05/call via x402, free with an API key.
+   */
+  async getCorporateActionsFeed(
+    options: CorporateActionsFeedOptions = {}
+  ): Promise<CorporateActionsFeedResponse> {
+    const params = new URLSearchParams();
+    if (options.symbol) params.set("symbol", options.symbol);
+    if (options.contract) params.set("contract", options.contract);
+    if (options.status) params.set("status", options.status);
+    if (options.from !== undefined) {
+      params.set("from", options.from instanceof Date ? options.from.toISOString() : options.from);
+    }
+    if (options.to !== undefined) {
+      params.set("to", options.to instanceof Date ? options.to.toISOString() : options.to);
+    }
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    if (options.cursor) params.set("cursor", options.cursor);
+    const qs = params.toString();
+    return this.request<CorporateActionsFeedResponse>(
+      `/api/corporate-actions${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  /**
+   * Async iterator over EVERY corporate-action event matching the filter,
+   * transparently following `nextCursor` across pages — `for await (const
+   * action of client.iterateCorporateActions({ status: "staged" }))`. Note
+   * each page is a separate billed request on the x402/credit paths, so a
+   * broad filter can fan out into many paid calls; narrow with
+   * `from`/`to`/`symbol`, or cap your own loop.
+   */
+  async *iterateCorporateActions(
+    options: Omit<CorporateActionsFeedOptions, "cursor"> = {}
+  ): AsyncGenerator<CorporateActionEvent, void, unknown> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.getCorporateActionsFeed({ ...options, cursor });
+      for (const action of page.actions) yield action;
+      cursor = page.pagination.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   /**

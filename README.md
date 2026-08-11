@@ -80,6 +80,7 @@ new HoodGrowClient({
   signer?: LocalAccount;
   baseUrl?: string;
   useCredits?: boolean; // spend prepaid credit instead of x402 per call — requires signer + buyCredits() first
+  maxRetries?: number;  // auto-retry 429s (Retry-After aware). Bearer path only — never on x402/credit (would risk paying twice). Default 0
 })
 ```
 
@@ -90,6 +91,8 @@ Exactly one of `apiKey` / `signer` is required.
 | `getCatalog()` | $0.10 | Every listed token: price, source, 24h change, corporate-action adjusted supply, DeFi depth, plus catalog-wide pending/recent corporate actions |
 | `getToken(symbol)` | $0.05 | One token, same fields, scoped |
 | `getCorporateActions(symbol?)` | uses `getToken`/`getCatalog` above | `{ pending, recent }` — pass a symbol to scope, omit for every tracked token |
+| `getCorporateActionsFeed(options?)` | $0.05 | One page of the filterable, cursor-paginated corporate-actions **event log** (`options: { symbol?, contract?, status?, from?, to?, limit?, cursor? }`) — the cross-symbol append-only feed with detection metadata (block, tx hash, `detectedAt`), distinct from the pending/recent bundle above |
+| `iterateCorporateActions(options?)` | $0.05 / page | `AsyncGenerator` over **every** event matching the filter, auto-following `nextCursor` — `for await (const a of client.iterateCorporateActions({ status: "staged" }))`. Each page is a separate billed call on x402/credit; narrow with `from`/`to`/`symbol` |
 | `getDefi(symbol)` | $0.05 | Every Morpho market this token participates in (loan OR collateral role) plus its Uniswap V3 pools — not just the single best-APY figure bundled into `getCatalog`/`getToken` |
 | `getHolders(symbol, limit?)` | $0.05 | Holder-count trend, 24h net supply change (real mint/burn), and top-holder concentration (`limit` caps how many holders to return, 1-50, defaults to 10) |
 | `getSlippage(symbol, amountUsd, side)` | $0.05 | How much a USD-sized trade (`side: "buy" \| "sell"`) would move the price, per Uniswap V3 pool — `bestPoolAddress`/`bestEffectivePrice` pick the best one for you |
@@ -105,11 +108,39 @@ Full response shapes are exported as types (`CatalogResponse`,
 `HoldersResponse`, `TopHolder`, `SupplyChange24h`, `SlippageResponse`,
 `SlippagePoolResult`, `SlippageSide`, `OhlcResponse`, `OhlcCandle`,
 `OhlcInterval`, `BaseTokensResponse`, `BaseToken`, `BaseTokenStatus`,
-`CreditBundle`, `CreditPurchaseAck`, `CreditBalance`).
+`CreditBundle`, `CreditPurchaseAck`, `CreditBalance`, `CorporateActionEvent`,
+`CorporateActionsFeedResponse`, `CorporateActionsFeedOptions`,
+`CorporateActionFeedStatus`, `CorporateActionSource`, `WebhookEvent`).
 
 A failed request (any non-2xx HoodGrow itself returns, after x402 payment
 handling — an unknown symbol, a server error) throws `HoodGrowError` with
 `.status` and `.body`.
+
+## Webhooks
+
+Subscribe to corporate-action events instead of polling: register a webhook
+(a Builder key's `webhookUrl`, or the credit-funded `POST
+/api/agent/credits/webhook`) and HoodGrow POSTs each `corporate_action.*`
+event to your URL, signed `x-hoodgrow-signature: sha256=<hex>`. **Verify that
+signature before trusting the body** — this SDK ships the check so you don't
+hand-roll the HMAC:
+
+```ts
+import { verifyWebhookSignature, type WebhookEvent } from "hoodgrow";
+
+// Express — read the RAW body, not the parsed JSON (re-serializing breaks the digest):
+// app.post("/hooks", express.raw({ type: "application/json" }), (req, res) => {
+if (!verifyWebhookSignature(req.body, req.header("x-hoodgrow-signature"), process.env.HOODGROW_WEBHOOK_SECRET!)) {
+  return res.sendStatus(401);
+}
+const event = JSON.parse(req.body.toString()) as WebhookEvent;
+// event.event -> "corporate_action.staged" | "corporate_action.paused" | "corporate_action.applied" | "webhook.test"
+res.sendStatus(200);
+```
+
+`verifyWebhookSignature(rawBody, signatureHeader, secret)` is constant-time,
+accepts the header with or without the `sha256=` prefix, and returns `false`
+(never throws) for a missing header, malformed signature, or any mismatch.
 
 ## Payment safety
 
@@ -132,6 +163,16 @@ out request can pay twice. Before pointing a signer at this client:
 30 requests/minute per IP by default for pay-per-call use. A `429` means
 back off — check the response's `Retry-After` rather than retrying
 immediately (a blind retry after a paid call risks a duplicate payment).
+
+On the **bearer `apiKey`** path (free, idempotent), pass `maxRetries` to have
+the client back off and retry `429`s for you, honoring `Retry-After`:
+
+```ts
+const client = new HoodGrowClient({ apiKey: process.env.HOODGROW_API_KEY, maxRetries: 3 });
+```
+
+`maxRetries` is deliberately **ignored on the x402/credit paths** — those
+calls aren't idempotent, so the client never auto-retries a paid request.
 Need more sustained throughput? A persistent API key with its own higher
 limit is available — see
 [hoodgrow.com/api-access](https://www.hoodgrow.com/api-access).
