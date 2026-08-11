@@ -2,6 +2,17 @@ export { HoodGrowClient, HoodGrowError } from "./client.js";
 export type { HoodGrowClientOptions, RequestOptions } from "./client.js";
 export { verifyWebhookSignature } from "./webhooks.js";
 export type { WebhookEvent } from "./webhooks.js";
+export {
+  hoodgrowTools,
+  executeHoodGrowTool,
+  hoodgrowOpenAiTools,
+  hoodgrowAnthropicTools,
+} from "./tools.js";
+export type {
+  HoodGrowToolDefinition,
+  HoodGrowToolName,
+  ToolParameterSchema,
+} from "./tools.js";
 export type {
   BaseToken,
   BaseTokensResponse,
