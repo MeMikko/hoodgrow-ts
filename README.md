@@ -98,6 +98,8 @@ Exactly one of `apiKey` / `signer` is required.
 | `getSlippage(symbol, amountUsd, side)` | $0.05 | How much a USD-sized trade (`side: "buy" \| "sell"`) would move the price, per Uniswap V3 pool — `bestPoolAddress`/`bestEffectivePrice` pick the best one for you |
 | `getOhlc(symbol, interval, options?)` | $0.05 | OHLC price candles for backtesting (`interval: "1h" \| "4h" \| "1d"`; `options: { from?, to?, limit? }`, `from`/`to` accept a `Date` or ISO string, default to the last 30 days). Each candle carries `volumeUsd`/`swapCount` — USD swap volume across the token's Uniswap V3 pools — `null` for buckets older than the volume indexer's backfill window |
 | `getBaseTokens()` | $0.05 | Base mainnet (chain 8453) B20 native-equity-token registry — a much smaller sibling of `getCatalog`. **Pre-launch**: check each token's `status` (`"pre_launch" \| "live"`) before treating it as tradable — `"pre_launch"` means no price, no DEX liquidity, no holders exist for it yet |
+| `getMarkets(options?)` | $0.05 | Market movers across the whole catalog: `topGainers`/`topLosers` (24h change), `topVolume` (24h swap volume), `topTvl` (Uniswap V3 liquidity). `options: { limit? }` caps each list (1-50, default 10); gainers/losers can be empty on a flat market |
+| `getTrades(options?)` | $0.05 | Recent large ("whale") trades in the stock-token Uniswap V3 pools, newest first — each with `side` (`"buy" \| "sell"`), USD size, and `txHash`. `options: { symbol?, limit? }` — omit `symbol` for the global feed, `limit` 1-100 (default 20) |
 | `listCreditBundles()` | free | Current prepaid credit bundle catalog (`{ [id]: { priceUsd, creditUsd } }`) — no auth required |
 | `buyCredits(bundleId)` | one x402 payment | Pays for one bundle; requires `signer`. Balance lands once settlement confirms — see `getCreditBalance()` |
 | `getCreditBalance()` | free | This wallet's current credit balance; requires `signer` |
@@ -259,8 +261,9 @@ try {
 ```
 
 `idempotencyKey` is the last argument on `getCatalog`, `getToken`, `getDefi`,
-`getHolders`, `getSlippage`, `getOhlc`, `getBaseTokens`, and
-`getCorporateActionsFeed` (e.g. `getHolders("NVDA", 10, { idempotencyKey })`).
+`getHolders`, `getSlippage`, `getOhlc`, `getBaseTokens`, `getMarkets`,
+`getTrades`, and `getCorporateActionsFeed` (e.g.
+`getHolders("NVDA", 10, { idempotencyKey })`).
 Reuse a key only to retry the exact same call — a key reused for a *different*
 request is rejected with `422`.
 

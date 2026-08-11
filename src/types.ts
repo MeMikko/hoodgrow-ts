@@ -240,6 +240,66 @@ export interface OhlcResponse {
   note: string;
 }
 
+/** One token's row in a market-movers list. `null` (not `0`) throughout keeps
+ * "no data" distinct from a real zero — change24hPercent is null when 24h
+ * history is too thin, tvlUsd/volume24hUsd null when the token has no pool or
+ * no indexed volume yet. */
+export interface MarketToken {
+  symbol: string;
+  name: string;
+  priceUsd: number | null;
+  priceSource: PriceSource;
+  /** Percent, e.g. 3.21 for +3.21%. */
+  change24hPercent: number | null;
+  tvlUsd: number | null;
+  volume24hUsd: number | null;
+  poolCount: number;
+  snapshotTs: string | null;
+}
+
+/** GET /api/agent/markets — cross-token movers ranked across the whole
+ * Robinhood Chain catalog. Each list is capped by the request's `limit`
+ * (default 10); gainers/losers can be empty when the market is flat (e.g.
+ * weekends). */
+export interface MarketsResponse {
+  chainId: number;
+  updatedAt: string;
+  tokenCount: number;
+  topGainers: MarketToken[];
+  topLosers: MarketToken[];
+  topVolume: MarketToken[];
+  topTvl: MarketToken[];
+  note: string;
+}
+
+/** Trade direction from the stock token's perspective: "buy" = the trader
+ * spent USDG to acquire the stock token, "sell" = sold it for USDG. */
+export type TradeSide = "buy" | "sell";
+
+/** One large ("whale") swap from the trades feed. `usd` is the swap's USDG
+ * leg — its USD size. */
+export interface Trade {
+  symbol: string;
+  poolAddress: string;
+  side: TradeSide;
+  usd: number;
+  txHash: string;
+  blockNumber: number;
+  ts: string;
+}
+
+/** GET /api/agent/trades — recent large trades across Robinhood Chain
+ * stock-token Uniswap V3 pools, newest first. `symbol` is the filter that was
+ * applied (or `null` for the global feed). An empty `trades` list means none
+ * were indexed in range. */
+export interface TradesResponse {
+  chainId: number;
+  symbol: string | null;
+  updatedAt: string;
+  trades: Trade[];
+  note: string;
+}
+
 export type BaseTokenStatus = "pre_launch" | "live";
 
 /** One Base (chain 8453) B20 native-equity token. `status` flips from

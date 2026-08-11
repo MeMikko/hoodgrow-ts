@@ -430,6 +430,90 @@ test("getBaseTokens hits the Base registry endpoint and returns the pre-launch n
   assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/base/tokens");
 });
 
+test("getMarkets passes limit and returns the four movers lists", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-08-11T12:00:00.000Z",
+          tokenCount: 48,
+          topGainers: [
+            {
+              symbol: "NVDA",
+              name: "NVIDIA",
+              priceUsd: 182.31,
+              priceSource: "chainlink",
+              change24hPercent: 3.42,
+              tvlUsd: 842000,
+              volume24hUsd: 152000,
+              poolCount: 2,
+              snapshotTs: "2026-08-11T11:55:00.000Z",
+            },
+          ],
+          topLosers: [],
+          topVolume: [],
+          topTvl: [],
+          note: "Movers ...",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getMarkets({ limit: 5 });
+      assert.equal(result.tokenCount, 48);
+      assert.equal(result.topGainers[0].symbol, "NVDA");
+      assert.equal(result.topLosers.length, 0);
+    }
+  );
+  const url = new URL(capturedUrl);
+  assert.equal(url.pathname, "/api/agent/markets");
+  assert.equal(url.searchParams.get("limit"), "5");
+});
+
+test("getTrades scopes to a symbol and returns the whale feed", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          symbol: "NVDA",
+          updatedAt: "2026-08-11T12:00:00.000Z",
+          trades: [
+            {
+              symbol: "NVDA",
+              poolAddress: "0x34D0dC122CF9A8Eb296fC5e0D3A233625D7d19b7",
+              side: "buy",
+              usd: 4200.5,
+              txHash: "0x8f2a1c3b",
+              blockNumber: 12345678,
+              ts: "2026-08-11T11:58:00.000Z",
+            },
+          ],
+          note: "Large trades ...",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getTrades({ symbol: "nvda", limit: 10 });
+      assert.equal(result.symbol, "NVDA");
+      assert.equal(result.trades[0].side, "buy");
+      assert.equal(result.trades[0].usd, 4200.5);
+    }
+  );
+  const url = new URL(capturedUrl);
+  assert.equal(url.pathname, "/api/agent/trades");
+  assert.equal(url.searchParams.get("symbol"), "NVDA");
+  assert.equal(url.searchParams.get("limit"), "10");
+});
+
 test("listCreditBundles fetches the bundle catalog with no auth", async () => {
   let capturedUrl = "";
   await withGlobalFetch(
