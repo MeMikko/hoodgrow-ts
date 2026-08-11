@@ -285,3 +285,61 @@ export interface CreditBalance {
   walletAddress: string;
   balanceUsd: number;
 }
+
+/** A corporate-action event's stage in the /api/corporate-actions feed.
+ * `staged`/`applied`/`paused` are on-chain ERC-8056 transitions;
+ * `rhj_ledger` is the official Robinhood ledger record (dividends etc.). */
+export type CorporateActionFeedStatus = "staged" | "applied" | "paused" | "rhj_ledger";
+
+/** Where a feed event came from — an on-chain read, or the RHJ registry. */
+export type CorporateActionSource = "onchain" | "rhj_registry";
+
+/** One event in the filterable, paginated /api/corporate-actions feed —
+ * distinct from the pending/recent bundle on a token (getCorporateActions):
+ * this is the cross-symbol append-only event log with its own detection
+ * metadata (blockNumber, transactionHash, detectedAt, freshnessSeconds). */
+export interface CorporateActionEvent {
+  symbol: string;
+  contract: string;
+  type: CorporateActionFeedStatus;
+  actionType: string | null;
+  multiplierFrom: number | null;
+  multiplierTo: number | null;
+  executionDate: string | null;
+  detectedAt: string;
+  lastUpdated: string;
+  /** Seconds since `lastUpdated`, computed at response time. */
+  freshnessSeconds: number;
+  blockNumber: number | null;
+  transactionHash: string | null;
+  source: CorporateActionSource;
+}
+
+/** GET /api/corporate-actions — one page of the corporate-actions event
+ * log. Use `pagination.nextCursor` (or HoodGrowClient.iterateCorporateActions)
+ * to page through the rest. */
+export interface CorporateActionsFeedResponse {
+  chainId: number;
+  updatedAt: string;
+  actions: CorporateActionEvent[];
+  pagination: {
+    /** Opaque cursor for the next page, or `null` on the last page. */
+    nextCursor: string | null;
+    limit: number;
+  };
+}
+
+/** Filters for the /api/corporate-actions feed. `from`/`to` accept a `Date`
+ * or an ISO 8601 string. */
+export interface CorporateActionsFeedOptions {
+  symbol?: string;
+  /** Filter by token contract address instead of symbol. */
+  contract?: string;
+  status?: CorporateActionFeedStatus;
+  from?: Date | string;
+  to?: Date | string;
+  /** Page size, 1-100 (server default 50). */
+  limit?: number;
+  /** Opaque cursor from a previous page's `pagination.nextCursor`. */
+  cursor?: string;
+}

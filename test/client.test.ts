@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { HoodGrowClient, HoodGrowError } from "../src/index.js";
+import { HoodGrowClient, HoodGrowError, verifyWebhookSignature } from "../src/index.js";
 
 /** Well-known public test private key (Hardhat/Anvil default account #0) —
  * never funded, safe to hardcode in a test file. */
@@ -505,4 +506,187 @@ test("useCredits attaches signed credit-auth headers to a metered GET", async ()
   );
   assert.equal(capturedHeaders["X-HoodGrow-Credit-Wallet"], TEST_ACCOUNT.address);
   assert.ok(capturedHeaders["X-HoodGrow-Credit-Signature"]?.startsWith("0x"));
+});
+
+/** One feed event, spread into tests that only care about a couple fields. */
+const FEED_EVENT = {
+  symbol: "TSLA",
+  contract: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+  type: "staged",
+  actionType: "split",
+  multiplierFrom: 1,
+  multiplierTo: 3,
+  executionDate: "2026-08-20T13:30:00.000Z",
+  detectedAt: "2026-08-11T09:14:22.000Z",
+  lastUpdated: "2026-08-11T09:14:22.000Z",
+  freshnessSeconds: 17265,
+  blockNumber: 8421337,
+  transactionHash: "0xdeadbeef",
+  source: "onchain",
+};
+
+test("getCorporateActionsFeed builds filters and hits the feed endpoint", async () => {
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-08-11T14:00:00.000Z",
+          actions: [FEED_EVENT],
+          pagination: { nextCursor: null, limit: 50 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const page = await client.getCorporateActionsFeed({
+        status: "staged",
+        symbol: "tsla",
+        from: new Date("2026-08-01T00:00:00.000Z"),
+        limit: 50,
+      });
+      assert.equal(page.actions.length, 1);
+      assert.equal(page.actions[0].source, "onchain");
+      assert.equal(page.pagination.nextCursor, null);
+    }
+  );
+  const url = new URL(capturedUrl);
+  assert.equal(url.pathname, "/api/corporate-actions");
+  assert.equal(url.searchParams.get("status"), "staged");
+  assert.equal(url.searchParams.get("symbol"), "tsla");
+  assert.equal(url.searchParams.get("from"), "2026-08-01T00:00:00.000Z");
+  assert.equal(url.searchParams.get("limit"), "50");
+});
+
+test("iterateCorporateActions walks every page via nextCursor", async () => {
+  const pages = [
+    { actions: [{ ...FEED_EVENT, symbol: "A" }], nextCursor: "cursor-1" },
+    { actions: [{ ...FEED_EVENT, symbol: "B" }], nextCursor: null },
+  ];
+  const capturedCursors: (string | null)[] = [];
+  let call = 0;
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedCursors.push(new URL(url).searchParams.get("cursor"));
+      const page = pages[call++];
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-08-11T14:00:00.000Z",
+          actions: page.actions,
+          pagination: { nextCursor: page.nextCursor, limit: 50 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const seen: string[] = [];
+      for await (const event of client.iterateCorporateActions({ status: "staged" })) {
+        seen.push(event.symbol);
+      }
+      assert.deepEqual(seen, ["A", "B"]);
+    }
+  );
+  assert.equal(capturedCursors.length, 2);
+  assert.equal(capturedCursors[0], null); // first page: no cursor
+  assert.equal(capturedCursors[1], "cursor-1"); // second page follows nextCursor
+});
+
+test("verifyWebhookSignature accepts a valid HMAC and rejects tampering", () => {
+  const secret = "whsec_test_secret";
+  const body = JSON.stringify({
+    id: "NVDA-newly-pending-x",
+    event: "corporate_action.staged",
+    symbol: "NVDA",
+    currentMultiplier: 1,
+    stagedMultiplier: 3,
+    effectiveAt: null,
+    ts: "2026-08-11T09:14:22.000Z",
+  });
+  const sig = createHmac("sha256", secret).update(body).digest("hex");
+
+  assert.equal(verifyWebhookSignature(body, `sha256=${sig}`, secret), true);
+  assert.equal(verifyWebhookSignature(body, sig, secret), true); // sha256= prefix optional
+  assert.equal(verifyWebhookSignature(Buffer.from(body), `sha256=${sig}`, secret), true); // bytes too
+  assert.equal(verifyWebhookSignature(body + " ", `sha256=${sig}`, secret), false); // tampered body
+  assert.equal(verifyWebhookSignature(body, `sha256=${sig}`, "wrong-secret"), false);
+  assert.equal(verifyWebhookSignature(body, null, secret), false); // missing header
+  assert.equal(verifyWebhookSignature(body, "sha256=not-valid-hex", secret), false);
+});
+
+test("maxRetries retries a 429 on the bearer path then succeeds", async () => {
+  let calls = 0;
+  await withGlobalFetch(
+    mockFetch(() => {
+      calls++;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ error: "Too many requests" }), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "0" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-07-30T00:00:00.000Z",
+          tokens: [],
+          pendingCorporateActions: [],
+          recentCorporateActions: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123", maxRetries: 2 });
+      const catalog = await client.getCatalog();
+      assert.equal(catalog.chainId, 4663);
+    }
+  );
+  assert.equal(calls, 2);
+});
+
+test("a 429 is not retried by default (maxRetries 0)", async () => {
+  let calls = 0;
+  await withGlobalFetch(
+    mockFetch(() => {
+      calls++;
+      return new Response(JSON.stringify({ error: "Too many requests" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await assert.rejects(
+        () => client.getCatalog(),
+        (err: unknown) => err instanceof HoodGrowError && err.status === 429
+      );
+    }
+  );
+  assert.equal(calls, 1);
+});
+
+test("maxRetries is ignored on the x402/signer path — a 429 never double-pays", async () => {
+  let calls = 0;
+  await withGlobalFetch(
+    mockFetch(() => {
+      calls++;
+      return new Response(JSON.stringify({ error: "Too many requests" }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "0" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ signer: TEST_ACCOUNT, maxRetries: 5 });
+      await assert.rejects(
+        () => client.getCatalog(),
+        (err: unknown) => err instanceof HoodGrowError && err.status === 429
+      );
+    }
+  );
+  assert.equal(calls, 1); // exactly one attempt despite maxRetries: 5
 });
