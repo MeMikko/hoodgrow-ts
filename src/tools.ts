@@ -180,6 +180,47 @@ export const hoodgrowTools: readonly HoodGrowToolDefinition[] = [
       "x402, free with an API key.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
+  {
+    name: "get_markets",
+    description:
+      "Market movers across the Robinhood Chain stock-token catalog: top gainers and " +
+      "losers by 24h price change, highest 24h swap volume, and deepest Uniswap V3 " +
+      "liquidity (TVL). `limit` caps each list (1-50, default 10); gainers/losers can " +
+      "be empty when the market is flat. $0.05 via x402, free with an API key.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          description: "Max entries per list (default 10).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_trades",
+    description:
+      "Recent large (whale) trades in Robinhood Chain stock-token Uniswap V3 pools, " +
+      "newest first — each with a buy/sell side, USD size, and transaction hash. Omit " +
+      "`symbol` for the global feed. `limit` caps the list (1-100, default 20). $0.05 " +
+      "via x402, free with an API key.",
+    parameters: {
+      type: "object",
+      properties: {
+        symbol: SYMBOL_PROP,
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          description: "Max trades to return (default 20).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Tool names as a union, for callers that want to switch exhaustively. */
@@ -243,6 +284,19 @@ export async function executeHoodGrowTool(
       );
     case "get_base_tokens":
       return client.getBaseTokens(opts);
+    case "get_markets":
+      return client.getMarkets(
+        { limit: args.limit === undefined ? undefined : Number(args.limit) },
+        opts
+      );
+    case "get_trades":
+      return client.getTrades(
+        {
+          symbol: args.symbol === undefined ? undefined : str(args.symbol, "symbol"),
+          limit: args.limit === undefined ? undefined : Number(args.limit),
+        },
+        opts
+      );
     default:
       throw new Error(`Unknown HoodGrow tool: ${name}`);
   }

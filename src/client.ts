@@ -14,11 +14,13 @@ import type {
   CreditPurchaseAck,
   DefiDetailResponse,
   HoldersResponse,
+  MarketsResponse,
   OhlcInterval,
   OhlcResponse,
   SlippageResponse,
   SlippageSide,
   TokenDetailResponse,
+  TradesResponse,
 } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
@@ -413,6 +415,48 @@ export class HoodGrowClient {
    */
   async getBaseTokens(opts?: RequestOptions): Promise<BaseTokensResponse> {
     return this.request<BaseTokensResponse>("/api/agent/base/tokens", opts);
+  }
+
+  /**
+   * Market movers across the whole Robinhood Chain catalog — top gainers and
+   * losers by 24h price change, highest 24h swap volume, and deepest Uniswap
+   * V3 liquidity (TVL). `options.limit` caps each list (1-50, default 10).
+   * $0.05 via x402, free with an API key.
+   */
+  async getMarkets(
+    options?: { limit?: number },
+    opts?: RequestOptions
+  ): Promise<MarketsResponse> {
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    const qs = params.toString();
+    return this.request<MarketsResponse>(
+      `/api/agent/markets${qs ? `?${qs}` : ""}`,
+      opts
+    );
+  }
+
+  /**
+   * Recent large ("whale") trades in Robinhood Chain stock-token Uniswap V3
+   * pools, newest first — each with a buy/sell side, USD size, and tx hash.
+   * `options.symbol` scopes to one token (omit for the global feed);
+   * `options.limit` caps the list (1-100, default 20). $0.05 via x402, free
+   * with an API key.
+   */
+  async getTrades(
+    options?: { symbol?: string; limit?: number },
+    opts?: RequestOptions
+  ): Promise<TradesResponse> {
+    const params = new URLSearchParams();
+    if (options?.symbol !== undefined) {
+      params.set("symbol", options.symbol.toUpperCase());
+    }
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    const qs = params.toString();
+    return this.request<TradesResponse>(
+      `/api/agent/trades${qs ? `?${qs}` : ""}`,
+      opts
+    );
   }
 
   /**

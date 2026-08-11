@@ -33,9 +33,11 @@ const EXPECTED_TOOLS = [
   "get_slippage",
   "get_ohlc",
   "get_base_tokens",
+  "get_markets",
+  "get_trades",
 ];
 
-test("hoodgrowTools exposes the eight read tools with object schemas", () => {
+test("hoodgrowTools exposes the read tools with object schemas", () => {
   assert.deepEqual(
     hoodgrowTools.map((t) => t.name),
     EXPECTED_TOOLS
