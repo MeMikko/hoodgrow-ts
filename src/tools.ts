@@ -147,10 +147,11 @@ export const hoodgrowTools: readonly HoodGrowToolDefinition[] = [
   {
     name: "get_ohlc",
     description:
-      "OHLC price candles for backtesting, bucketed from ~15-min price history. OHLC " +
-      "only, no volume — HoodGrow has no historical trading-volume series. Defaults to " +
-      "the last 30 days if from/to are omitted; window capped at 730 days. $0.05 via " +
-      "x402, free with an API key. Fails for an unknown symbol.",
+      "OHLC price candles for backtesting, bucketed from ~15-min price history. Each " +
+      "candle also carries volumeUsd/swapCount — USD swap volume across the token's " +
+      "Uniswap V3 pools, null for buckets older than the volume indexer's backfill " +
+      "window. Defaults to the last 30 days if from/to are omitted; window capped at " +
+      "730 days. $0.05 via x402, free with an API key. Fails for an unknown symbol.",
     parameters: {
       type: "object",
       properties: {

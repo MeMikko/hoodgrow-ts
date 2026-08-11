@@ -216,11 +216,19 @@ export interface OhlcCandle {
   /** How many raw ~15-min price snapshots contributed to this candle — a
    * low count (e.g. 1) means a thinner spread, not a data error. */
   sampleCount: number;
+  /** USD swap volume across the token's Uniswap V3 pools during this bucket,
+   * summed from indexed Swap events. `null` (not `0`) for a bucket with no
+   * indexed volume — older than the volume indexer's backfill window. */
+  volumeUsd: number | null;
+  /** Number of swaps in the bucket, alongside `volumeUsd`. `null` under the
+   * same conditions. */
+  swapCount: number | null;
 }
 
-/** GET /api/agent/ohlc/{symbol} — OHLC price candles for backtesting.
- * Deliberately OHLC, not OHLCV: HoodGrow has no historical trading-volume
- * time series to draw a volume field from, so none is included. */
+/** GET /api/agent/ohlc/{symbol} — OHLC price candles for backtesting, with
+ * per-candle `volumeUsd`/`swapCount` (USD swap volume across the token's
+ * Uniswap V3 pools). Volume is `null` for buckets older than the volume
+ * indexer's backfill window. */
 export interface OhlcResponse {
   chainId: number;
   symbol: string;
