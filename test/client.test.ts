@@ -690,3 +690,79 @@ test("maxRetries is ignored on the x402/signer path — a 429 never double-pays"
   );
   assert.equal(calls, 1); // exactly one attempt despite maxRetries: 5
 });
+
+const CATALOG_BODY = JSON.stringify({
+  chainId: 4663,
+  updatedAt: "2026-07-30T00:00:00.000Z",
+  tokens: [],
+  pendingCorporateActions: [],
+  recentCorporateActions: [],
+});
+
+test("a per-call idempotencyKey is sent as the Idempotency-Key header", async () => {
+  let captured: string | null = null;
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      captured = (init?.headers as Record<string, string> | undefined)?.["Idempotency-Key"] ?? null;
+      return new Response(CATALOG_BODY, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.getCatalog({ idempotencyKey: "abc-123" });
+    }
+  );
+  assert.equal(captured, "abc-123");
+});
+
+test("no Idempotency-Key header is sent when the option is omitted", async () => {
+  let hadHeader = true;
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      const headers = (init?.headers as Record<string, string> | undefined) ?? {};
+      hadHeader = "Idempotency-Key" in headers;
+      return new Response(CATALOG_BODY, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.getCatalog();
+    }
+  );
+  assert.equal(hadHeader, false);
+});
+
+test("idempotencyKey works on trailing-param methods too (getHolders)", async () => {
+  let captured: string | null = null;
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url, init) => {
+      capturedUrl = url;
+      captured = (init?.headers as Record<string, string> | undefined)?.["Idempotency-Key"] ?? null;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          symbol: "NVDA",
+          updatedAt: "2026-08-08T00:00:00.000Z",
+          holderCount: 1,
+          holderCountDelta: null,
+          holderCountDeltaSinceTs: null,
+          holderSnapshotTs: null,
+          supplyChange24h: null,
+          topHolders: { snapshotTs: null, totalHolders: 1, holders: [] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.getHolders("nvda", 10, { idempotencyKey: "hold-1" });
+    }
+  );
+  assert.equal(captured, "hold-1");
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/holders/NVDA?limit=10");
+});

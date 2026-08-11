@@ -91,6 +91,19 @@ export interface HoodGrowClientOptions {
   maxRetries?: number;
 }
 
+/** Per-call options accepted by the metered read methods. */
+export interface RequestOptions {
+  /**
+   * An `Idempotency-Key` sent with this request. If the same key + same
+   * request reaches the server again within its retention window, the stored
+   * response is replayed WITHOUT a second x402 charge (see the API
+   * reference's "Idempotency" section) — the safe way to retry a paid call
+   * that timed out. Use a fresh, stable key per logical call (e.g. a UUID),
+   * and reuse that exact key only to retry that same call.
+   */
+  idempotencyKey?: string;
+}
+
 /** Thrown for any non-2xx response other than a 402 x402 handles itself. */
 export class HoodGrowError extends Error {
   constructor(
@@ -165,11 +178,17 @@ export class HoodGrowClient {
     };
   }
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(path: string, reqOpts?: RequestOptions): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     // Retry a 429 ONLY on the free bearer path. x402/credit calls are not
     // idempotent (a retry can pay twice / re-spend), so they get one shot.
     const maxAttempts = this.usingApiKey ? this.maxRetries + 1 : 1;
+    // Optional idempotency key — flows through on every path (the x402
+    // payment wrapper preserves the original request headers on its paid
+    // retry), so a caller can safely retry a timed-out paid call.
+    const idempotencyHeader: Record<string, string> = reqOpts?.idempotencyKey
+      ? { "Idempotency-Key": reqOpts.idempotencyKey }
+      : {};
 
     for (let attempt = 1; ; attempt++) {
       // A credit-spend call is NOT an x402 payment — it must bypass the
@@ -178,8 +197,8 @@ export class HoodGrowClient {
       // fetch instead, same as getCreditBalance()/buyCredits() already do.
       // Re-signed per attempt so a retry never replays a stale signature.
       const headers = this.useCredits
-        ? { ...this.headers, ...(await this.signCreditAuthHeaders("GET", path)) }
-        : this.headers;
+        ? { ...this.headers, ...idempotencyHeader, ...(await this.signCreditAuthHeaders("GET", path)) }
+        : { ...this.headers, ...idempotencyHeader };
       const fetchFn = this.useCredits ? fetch : this.fetchFn;
       const res = await fetchFn(url, { headers });
 
@@ -209,8 +228,8 @@ export class HoodGrowClient {
    * with price, corporate-action adjusted supply, and DeFi depth.
    * $0.10/call via x402, free with an API key.
    */
-  async getCatalog(): Promise<CatalogResponse> {
-    return this.request<CatalogResponse>("/api/agent/tokens");
+  async getCatalog(opts?: RequestOptions): Promise<CatalogResponse> {
+    return this.request<CatalogResponse>("/api/agent/tokens", opts);
   }
 
   /**
@@ -219,9 +238,10 @@ export class HoodGrowClient {
    * via x402, free with an API key. Rejects with a 404 HoodGrowError for
    * an unknown symbol.
    */
-  async getToken(symbol: string): Promise<TokenDetailResponse> {
+  async getToken(symbol: string, opts?: RequestOptions): Promise<TokenDetailResponse> {
     return this.request<TokenDetailResponse>(
-      `/api/agent/token/${encodeURIComponent(symbol.toUpperCase())}`
+      `/api/agent/token/${encodeURIComponent(symbol.toUpperCase())}`,
+      opts
     );
   }
 
@@ -231,8 +251,11 @@ export class HoodGrowClient {
    * for every tracked token's corporate actions (uses the full-catalog
    * endpoint).
    */
-  async getCorporateActions(symbol?: string): Promise<CorporateActions> {
-    const data = symbol ? await this.getToken(symbol) : await this.getCatalog();
+  async getCorporateActions(
+    symbol?: string,
+    opts?: RequestOptions
+  ): Promise<CorporateActions> {
+    const data = symbol ? await this.getToken(symbol, opts) : await this.getCatalog(opts);
     return {
       pending: data.pendingCorporateActions,
       recent: data.recentCorporateActions,
@@ -249,7 +272,8 @@ export class HoodGrowClient {
    * every page automatically. $0.05/call via x402, free with an API key.
    */
   async getCorporateActionsFeed(
-    options: CorporateActionsFeedOptions = {}
+    options: CorporateActionsFeedOptions = {},
+    opts?: RequestOptions
   ): Promise<CorporateActionsFeedResponse> {
     const params = new URLSearchParams();
     if (options.symbol) params.set("symbol", options.symbol);
@@ -265,7 +289,8 @@ export class HoodGrowClient {
     if (options.cursor) params.set("cursor", options.cursor);
     const qs = params.toString();
     return this.request<CorporateActionsFeedResponse>(
-      `/api/corporate-actions${qs ? `?${qs}` : ""}`
+      `/api/corporate-actions${qs ? `?${qs}` : ""}`,
+      opts
     );
   }
 
@@ -295,9 +320,10 @@ export class HoodGrowClient {
    * via x402, free with an API key. Rejects with a 404 HoodGrowError for
    * an unknown symbol.
    */
-  async getDefi(symbol: string): Promise<DefiDetailResponse> {
+  async getDefi(symbol: string, opts?: RequestOptions): Promise<DefiDetailResponse> {
     return this.request<DefiDetailResponse>(
-      `/api/agent/defi/${encodeURIComponent(symbol.toUpperCase())}`
+      `/api/agent/defi/${encodeURIComponent(symbol.toUpperCase())}`,
+      opts
     );
   }
 
@@ -309,10 +335,15 @@ export class HoodGrowClient {
    * defaults to 10 if omitted). $0.05/call via x402, free with an API
    * key. Rejects with a 404 HoodGrowError for an unknown symbol.
    */
-  async getHolders(symbol: string, limit?: number): Promise<HoldersResponse> {
+  async getHolders(
+    symbol: string,
+    limit?: number,
+    opts?: RequestOptions
+  ): Promise<HoldersResponse> {
     const query = limit !== undefined ? `?limit=${encodeURIComponent(String(limit))}` : "";
     return this.request<HoldersResponse>(
-      `/api/agent/holders/${encodeURIComponent(symbol.toUpperCase())}${query}`
+      `/api/agent/holders/${encodeURIComponent(symbol.toUpperCase())}${query}`,
+      opts
     );
   }
 
@@ -327,11 +358,13 @@ export class HoodGrowClient {
   async getSlippage(
     symbol: string,
     amountUsd: number,
-    side: SlippageSide
+    side: SlippageSide,
+    opts?: RequestOptions
   ): Promise<SlippageResponse> {
     const query = `?amountUsd=${encodeURIComponent(String(amountUsd))}&side=${encodeURIComponent(side)}`;
     return this.request<SlippageResponse>(
-      `/api/agent/slippage/${encodeURIComponent(symbol.toUpperCase())}${query}`
+      `/api/agent/slippage/${encodeURIComponent(symbol.toUpperCase())}${query}`,
+      opts
     );
   }
 
@@ -350,7 +383,8 @@ export class HoodGrowClient {
   async getOhlc(
     symbol: string,
     interval: OhlcInterval,
-    options?: { from?: Date | string; to?: Date | string; limit?: number }
+    options?: { from?: Date | string; to?: Date | string; limit?: number },
+    opts?: RequestOptions
   ): Promise<OhlcResponse> {
     const params = new URLSearchParams({ interval });
     if (options?.from !== undefined) {
@@ -363,7 +397,8 @@ export class HoodGrowClient {
       params.set("limit", String(options.limit));
     }
     return this.request<OhlcResponse>(
-      `/api/agent/ohlc/${encodeURIComponent(symbol.toUpperCase())}?${params.toString()}`
+      `/api/agent/ohlc/${encodeURIComponent(symbol.toUpperCase())}?${params.toString()}`,
+      opts
     );
   }
 
@@ -376,8 +411,8 @@ export class HoodGrowClient {
    * automatically once real supply appears on-chain. $0.05/call via x402,
    * free with an API key.
    */
-  async getBaseTokens(): Promise<BaseTokensResponse> {
-    return this.request<BaseTokensResponse>("/api/agent/base/tokens");
+  async getBaseTokens(opts?: RequestOptions): Promise<BaseTokensResponse> {
+    return this.request<BaseTokensResponse>("/api/agent/base/tokens", opts);
   }
 
   /**

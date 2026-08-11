@@ -177,6 +177,32 @@ Need more sustained throughput? A persistent API key with its own higher
 limit is available — see
 [hoodgrow.com/api-access](https://www.hoodgrow.com/api-access).
 
+## Idempotent retries (paid calls)
+
+To retry a **paid** call that timed out without risking a double charge, pass
+a stable `idempotencyKey` — the server replays the first stored response
+instead of charging again. Works on every metered read method (the x402
+payment wrapper preserves the header on its paid retry):
+
+```ts
+import { randomUUID } from "node:crypto";
+
+const key = randomUUID(); // one stable key per logical call
+try {
+  return await client.getCatalog({ idempotencyKey: key });
+} catch (err) {
+  // Timed out / network blip? Retrying with the SAME key is safe — a settled
+  // first attempt is replayed, not re-charged.
+  return await client.getCatalog({ idempotencyKey: key });
+}
+```
+
+`idempotencyKey` is the last argument on `getCatalog`, `getToken`, `getDefi`,
+`getHolders`, `getSlippage`, `getOhlc`, `getBaseTokens`, and
+`getCorporateActionsFeed` (e.g. `getHolders("NVDA", 10, { idempotencyKey })`).
+Reuse a key only to retry the exact same call — a key reused for a *different*
+request is rejected with `422`.
+
 ## Development
 
 ```bash
