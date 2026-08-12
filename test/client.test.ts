@@ -567,6 +567,78 @@ test("buyCredits requires a signer", async () => {
   await assert.rejects(() => client.buyCredits("10"), /requires a `signer`/);
 });
 
+test("registerCreditWebhook requires a signer", async () => {
+  const client = new HoodGrowClient({ apiKey: "test-key-123" });
+  await assert.rejects(
+    () => client.registerCreditWebhook({ url: "https://example.com/hook" }),
+    /requires a `signer`/
+  );
+});
+
+test("registerCreditWebhook POSTs url + symbols with credit-auth headers", async () => {
+  let capturedUrl = "";
+  let capturedInit: RequestInit | undefined;
+  await withGlobalFetch(
+    mockFetch((url, init) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          webhookUrl: "https://example.com/hook",
+          webhookSecret: "whsec_abc123",
+          webhookSymbols: "NVDA,INTC",
+          note: "billed per event",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ signer: TEST_ACCOUNT });
+      const reg = await client.registerCreditWebhook({
+        url: "https://example.com/hook",
+        symbols: ["NVDA", "INTC"],
+      });
+      assert.equal(reg.webhookSecret, "whsec_abc123");
+      assert.equal(reg.webhookSymbols, "NVDA,INTC");
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/credits/webhook");
+  assert.equal(capturedInit?.method, "POST");
+  const headers = (capturedInit?.headers as Record<string, string>) ?? {};
+  assert.equal(headers["X-HoodGrow-Credit-Wallet"], TEST_ACCOUNT.address);
+  assert.ok(headers["X-HoodGrow-Credit-Signature"]?.startsWith("0x"));
+  assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
+    webhookUrl: "https://example.com/hook",
+    webhookSymbols: ["NVDA", "INTC"],
+  });
+});
+
+test("registerCreditWebhook omits webhookSymbols when symbols is not given", async () => {
+  let capturedBody: unknown = null;
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          webhookUrl: "https://example.com/hook",
+          webhookSecret: "whsec_abc123",
+          webhookSymbols: null,
+          note: "billed per event",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ signer: TEST_ACCOUNT });
+      const reg = await client.registerCreditWebhook({ url: "https://example.com/hook" });
+      assert.equal(reg.webhookSymbols, null);
+    }
+  );
+  assert.deepEqual(capturedBody, { webhookUrl: "https://example.com/hook" });
+});
+
 test("useCredits attaches signed credit-auth headers to a metered GET", async () => {
   let capturedHeaders: Record<string, string> = {};
   await withGlobalFetch(

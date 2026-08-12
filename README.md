@@ -103,6 +103,7 @@ Exactly one of `apiKey` / `signer` is required.
 | `listCreditBundles()` | free | Current prepaid credit bundle catalog (`{ [id]: { priceUsd, creditUsd } }`) — no auth required |
 | `buyCredits(bundleId)` | one x402 payment | Pays for one bundle; requires `signer`. Balance lands once settlement confirms — see `getCreditBalance()` |
 | `getCreditBalance()` | free | This wallet's current credit balance; requires `signer` |
+| `registerCreditWebhook({ url, symbols? })` | free to register, then per delivered event | Register a credit-funded corporate-action webhook; requires `signer`. `symbols` restricts delivery (and billing) to those symbols — omit for all. Returns `{ webhookUrl, webhookSecret, webhookSymbols, note }` |
 
 Full response shapes are exported as types (`CatalogResponse`,
 `TokenDetailResponse`, `TokenSummary`, `DefiInfo`, `PendingCorporateAction`,
@@ -110,9 +111,11 @@ Full response shapes are exported as types (`CatalogResponse`,
 `HoldersResponse`, `TopHolder`, `SupplyChange24h`, `SlippageResponse`,
 `SlippagePoolResult`, `SlippageSide`, `OhlcResponse`, `OhlcCandle`,
 `OhlcInterval`, `BaseTokensResponse`, `BaseToken`, `BaseTokenStatus`,
-`CreditBundle`, `CreditPurchaseAck`, `CreditBalance`, `CorporateActionEvent`,
-`CorporateActionsFeedResponse`, `CorporateActionsFeedOptions`,
-`CorporateActionFeedStatus`, `CorporateActionSource`, `WebhookEvent`).
+`CreditBundle`, `CreditPurchaseAck`, `CreditBalance`,
+`RegisterCreditWebhookOptions`, `CreditWebhookRegistration`,
+`CorporateActionEvent`, `CorporateActionsFeedResponse`,
+`CorporateActionsFeedOptions`, `CorporateActionFeedStatus`,
+`CorporateActionSource`, `WebhookEvent`).
 
 A failed request (any non-2xx HoodGrow itself returns, after x402 payment
 handling — an unknown symbol, a server error) throws `HoodGrowError` with
@@ -123,9 +126,27 @@ handling — an unknown symbol, a server error) throws `HoodGrowError` with
 Subscribe to corporate-action events instead of polling: register a webhook
 (a Builder key's `webhookUrl`, or the credit-funded `POST
 /api/agent/credits/webhook`) and HoodGrow POSTs each `corporate_action.*`
-event to your URL, signed `x-hoodgrow-signature: sha256=<hex>`. **Verify that
-signature before trusting the body** — this SDK ships the check so you don't
-hand-roll the HMAC:
+event to your URL, signed `x-hoodgrow-signature: sha256=<hex>`.
+
+**Register the credit-funded webhook straight from the SDK** — `signer` only,
+no signup. Registering is free; you're billed per delivered event against your
+prepaid balance. `symbols` narrows both delivery *and* billing to the tokens
+you care about (omit for all):
+
+```ts
+const client = new HoodGrowClient({ signer });
+const { webhookSecret } = await client.registerCreditWebhook({
+  url: "https://your-domain.com/hooks/hoodgrow",
+  symbols: ["NVDA", "INTC"], // omit for every token's events
+});
+// Store webhookSecret — it signs every delivery (verify it below). Shown once.
+```
+
+(A Builder-subscription webhook is set from the website instead — it uses
+wallet-session auth, not this SDK's signer.)
+
+**Verify the signature before trusting a delivered body** — this SDK ships the
+check so you don't hand-roll the HMAC:
 
 ```ts
 import { verifyWebhookSignature, type WebhookEvent } from "hoodgrow";
