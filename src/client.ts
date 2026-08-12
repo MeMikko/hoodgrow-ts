@@ -12,11 +12,13 @@ import type {
   CreditBalance,
   CreditBundle,
   CreditPurchaseAck,
+  CreditWebhookRegistration,
   DefiDetailResponse,
   HoldersResponse,
   MarketsResponse,
   OhlcInterval,
   OhlcResponse,
+  RegisterCreditWebhookOptions,
   SlippageResponse,
   SlippageSide,
   TokenDetailResponse,
@@ -533,5 +535,64 @@ export class HoodGrowClient {
       );
     }
     return (await res.json()) as CreditBalance;
+  }
+
+  /**
+   * Register (or update) a credit-funded corporate-action webhook for this
+   * wallet. HoodGrow then POSTs each matching `corporate_action.*` event to
+   * `options.url`, signed with the returned `webhookSecret` — verify every
+   * delivery with verifyWebhookSignature before trusting it. Requires
+   * `signer`.
+   *
+   * Registering is FREE (no credit spend here); each delivered event is
+   * billed per-event against this wallet's prepaid credit balance (see
+   * buyCredits/getCreditBalance), so an idle webhook that never fires costs
+   * nothing. Calling again with the same URL rotates nothing; a different
+   * URL mints a fresh secret.
+   *
+   * `options.symbols` restricts delivery — and, since billing is per
+   * delivered event, what you're charged for — to just those symbols. Omit
+   * or pass `[]` to receive every token's events (the default).
+   *
+   * This is the credit-funded path only. A Builder-subscription webhook is
+   * set from the website (it uses wallet-session auth, not this SDK's
+   * signer), so there's no SDK method for it.
+   */
+  async registerCreditWebhook(
+    options: RegisterCreditWebhookOptions
+  ): Promise<CreditWebhookRegistration> {
+    if (!this.signer) {
+      throw new Error("registerCreditWebhook requires a `signer`");
+    }
+    const path = "/api/agent/credits/webhook";
+    const headers = {
+      "Content-Type": "application/json",
+      ...(await this.signCreditAuthHeaders("POST", path)),
+    };
+    const payload: { webhookUrl: string; webhookSymbols?: string[] } = {
+      webhookUrl: options.url,
+    };
+    if (options.symbols !== undefined) {
+      payload.webhookSymbols = options.symbols;
+    }
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        // Non-JSON error body.
+      }
+      throw new HoodGrowError(
+        `failed to register credit webhook: ${res.status} ${res.statusText}`,
+        res.status,
+        body
+      );
+    }
+    return (await res.json()) as CreditWebhookRegistration;
   }
 }

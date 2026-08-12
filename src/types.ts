@@ -354,6 +354,33 @@ export interface CreditBalance {
   balanceUsd: number;
 }
 
+/** Options for HoodGrowClient.registerCreditWebhook. */
+export interface RegisterCreditWebhookOptions {
+  /** HTTPS URL HoodGrow POSTs each corporate-action event to. */
+  url: string;
+  /** Restrict delivery — and, since billing is per delivered event, what
+   * you're charged for — to just these symbols. Case-insensitive, deduped
+   * server-side. Omit or pass `[]` for every token's events (the default). */
+  symbols?: string[];
+}
+
+/** POST /api/agent/credits/webhook response — the registered credit-funded
+ * corporate-action webhook. Registering is free; each delivered event is
+ * billed per-event against the wallet's prepaid credit balance. */
+export interface CreditWebhookRegistration {
+  ok: true;
+  /** The stored HTTPS delivery URL. */
+  webhookUrl: string;
+  /** HMAC-SHA256 secret that signs deliveries (`x-hoodgrow-signature`) —
+   * pass it to verifyWebhookSignature. Shown here; store it. */
+  webhookSecret: string;
+  /** The stored symbol filter as a comma-separated list, or `null` for all
+   * symbols. */
+  webhookSymbols: string | null;
+  /** Human-readable note about the per-event billing model. */
+  note: string;
+}
+
 /** A corporate-action event's stage in the /api/corporate-actions feed.
  * `staged`/`applied`/`paused` are on-chain ERC-8056 transitions;
  * `rhj_ledger` is the official Robinhood ledger record (dividends etc.). */
