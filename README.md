@@ -10,6 +10,12 @@ signup — or use a bearer API key if you have one.
 npm i hoodgrow
 ```
 
+> **Just want the data in your AI assistant?** You don't need this SDK — point
+> any MCP client at the hosted server `https://www.hoodgrow.com/api/mcp`
+> (read-only, no key) and ask. See
+> [hoodgrow-mcp](https://github.com/MeMikko/hoodgrow-mcp). This SDK is for
+> calling the API from your own TypeScript code.
+
 ## Quick start — x402 (pay per call, no signup)
 
 ```ts
