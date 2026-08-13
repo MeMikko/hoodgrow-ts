@@ -1,9 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { HoodGrowClient, HoodGrowError, verifyWebhookSignature } from "../src/index.js";
+import {
+  HoodGrowClient,
+  HoodGrowError,
+  SDK_VERSION,
+  verifyWebhookSignature,
+} from "../src/index.js";
 
 /** Well-known public test private key (Hardhat/Anvil default account #0) —
  * never funded, safe to hardcode in a test file. */
@@ -921,4 +927,38 @@ test("idempotencyKey works on trailing-param methods too (getHolders)", async ()
   );
   assert.equal(captured, "hold-1");
   assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/holders/NVDA?limit=10");
+});
+
+test("SDK_VERSION matches package.json so the User-Agent never lies", async () => {
+  // The sibling MCP package reported 0.4.0 while shipping 0.7.1 — three
+  // releases of drift, invisible because nothing compared the two. This
+  // version goes out on every request's User-Agent and is how the API
+  // attributes traffic to real SDK integrations rather than crawlers, so a
+  // stale value here quietly misattributes exactly the signal it exists to
+  // carry.
+  const pkg = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8")
+  ) as { version: string };
+  assert.equal(SDK_VERSION, pkg.version);
+});
+
+test("every request identifies the SDK by default", async () => {
+  // Without this header the API cannot tell an integration apart from an
+  // anonymous probe: both arrive with no source at all.
+  let capturedUa: string | null = null;
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      capturedUa =
+        (init?.headers as Record<string, string> | undefined)?.["User-Agent"] ?? null;
+      return new Response(JSON.stringify({ tokens: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+    async () => {
+      await new HoodGrowClient({ apiKey: "test-key" }).getCatalog();
+    }
+  );
+
+  assert.match(capturedUa ?? "", /^hoodgrow-ts\/\d+\.\d+\.\d+$/);
 });

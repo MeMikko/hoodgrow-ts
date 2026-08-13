@@ -26,6 +26,17 @@ import type {
 } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
+
+/**
+ * Reported to the API in the User-Agent on every request.
+ *
+ * A literal rather than an import of package.json: this package ships both
+ * ESM and typed output, and pulling JSON in across that boundary costs more
+ * than it saves. A test asserts it equals package.json, so it cannot drift
+ * silently — which is exactly how the sibling MCP package ended up reporting
+ * 0.4.0 while shipping 0.7.1.
+ */
+export const SDK_VERSION = "0.11.0";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
 const NETWORK = "eip155:8453";
 /** Upper bound on any single 429 backoff wait, so a hostile/huge Retry-After
@@ -137,7 +148,17 @@ export class HoodGrowClient {
 
   constructor(options: HoodGrowClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
-    this.headers = {};
+    // Identify the SDK on every request. Without it, calls made through this
+    // client arrive with no User-Agent at all and land in the API's
+    // "unattributed, no source" bucket — indistinguishable from the crawlers
+    // and liveness probes that sweep the public endpoints. That is the exact
+    // distinction the API's usage ledger exists to make: an integration built
+    // on this SDK is the signal, a probe is the noise, and right now they look
+    // identical from the server side.
+    //
+    // Callers can still override it via `headers` if they want to identify
+    // their own application instead.
+    this.headers = { "User-Agent": `hoodgrow-ts/${SDK_VERSION}` };
     this.signer = options.signer;
     this.useCredits = Boolean(options.useCredits && options.signer && !options.apiKey);
     this.usingApiKey = Boolean(options.apiKey);
