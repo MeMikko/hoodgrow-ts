@@ -1,0 +1,39 @@
+name: CI
+
+# Runs build + tests on every PR and push to main. Before this existed the
+# only workflow was publish.yml, which gates a release on `npm test` — but
+# nothing ran between releases, so a broken commit sat unnoticed on main
+# until the next release tried to ship it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, matching publish.yml (Node 20 is end-of-life).
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # tsc catches type errors the runtime tests may not exercise, and
+      # this is the exact build a release would publish.
+      - run: npm run build
+
+      - run: npm test

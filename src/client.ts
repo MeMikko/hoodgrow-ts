@@ -61,9 +61,9 @@ function retryAfterMs(header: string | null, attempt: number): number {
 
 export interface HoodGrowClientOptions {
   /**
-   * Bearer API key issued from HoodGrow's /admin/api-keys — calls are
-   * free (no x402 payment) and unrate-limited beyond the key's own
-   * configured limit. Takes priority over `signer` if both are set.
+   * Bearer API key issued by HoodGrow (https://www.hoodgrow.com/api-access)
+   * — calls are free (no x402 payment) and unrate-limited beyond the key's
+   * own configured limit. Takes priority over `signer` if both are set.
    */
   apiKey?: string;
   /**
@@ -411,10 +411,11 @@ export class HoodGrowClient {
    * collection cadence. `from`/`to` default to the last 30 days if
    * omitted (accepts a `Date` or an ISO 8601 string); the window is
    * capped at 730 days server-side. `limit` caps candles returned (1-1000,
-   * defaults to 500). Deliberately OHLC, not OHLCV — HoodGrow has no
-   * historical trading-volume time series to draw a volume field from.
-   * $0.05/call via x402, free with an API key. Rejects with a 404
-   * HoodGrowError for an unknown symbol.
+   * defaults to 500). Each candle also carries per-candle `volumeUsd`/
+   * `swapCount` from the on-chain swap-log indexer (`null` for buckets
+   * predating its deployment — see `OhlcCandle`). $0.05/call via x402,
+   * free with an API key. Rejects with a 404 HoodGrowError for an
+   * unknown symbol.
    */
   async getOhlc(
     symbol: string,
