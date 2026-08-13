@@ -82,6 +82,17 @@ export interface HoodGrowClientOptions {
    * deployment. Defaults to https://www.hoodgrow.com. */
   baseUrl?: string;
   /**
+   * Replace the `User-Agent` this client sends (default
+   * `hoodgrow-ts/<version>`).
+   *
+   * Set it when this SDK is embedded in something the API should count
+   * separately — hoodgrow-mcp wraps this client, and without an override its
+   * traffic is indistinguishable from a direct SDK integration. Convention is
+   * to keep the SDK visible behind your own name, e.g.
+   * `my-app/2.1 (hoodgrow-ts/0.11.0)`.
+   */
+  userAgent?: string;
+  /**
    * When true AND `signer` is set, every metered call is authenticated by
    * spending from that wallet's prepaid credit balance (see buyCredits())
    * instead of a fresh x402 payment — a lightweight signed message, no
@@ -156,9 +167,9 @@ export class HoodGrowClient {
     // on this SDK is the signal, a probe is the noise, and right now they look
     // identical from the server side.
     //
-    // Callers can still override it via `headers` if they want to identify
-    // their own application instead.
-    this.headers = { "User-Agent": `hoodgrow-ts/${SDK_VERSION}` };
+    // Callers embedding this SDK can identify themselves instead via the
+    // `userAgent` option — see its doc comment for why that matters.
+    this.headers = { "User-Agent": options.userAgent ?? `hoodgrow-ts/${SDK_VERSION}` };
     this.signer = options.signer;
     this.useCredits = Boolean(options.useCredits && options.signer && !options.apiKey);
     this.usingApiKey = Boolean(options.apiKey);

@@ -962,3 +962,28 @@ test("every request identifies the SDK by default", async () => {
 
   assert.match(capturedUa ?? "", /^hoodgrow-ts\/\d+\.\d+\.\d+$/);
 });
+
+test("userAgent option replaces the default so an embedder can be counted separately", async () => {
+  // hoodgrow-mcp wraps this client. Without an override its traffic is
+  // indistinguishable from a direct SDK integration, which defeats the point
+  // of identifying either.
+  let capturedUa: string | null = null;
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      capturedUa =
+        (init?.headers as Record<string, string> | undefined)?.["User-Agent"] ?? null;
+      return new Response(JSON.stringify({ tokens: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+    async () => {
+      await new HoodGrowClient({
+        apiKey: "test-key",
+        userAgent: "hoodgrow-mcp/0.8.0 (hoodgrow-ts/0.11.0)",
+      }).getCatalog();
+    }
+  );
+
+  assert.equal(capturedUa, "hoodgrow-mcp/0.8.0 (hoodgrow-ts/0.11.0)");
+});
