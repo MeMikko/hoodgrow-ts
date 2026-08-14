@@ -987,3 +987,51 @@ test("userAgent option replaces the default so an embedder can be counted separa
 
   assert.equal(capturedUa, "hoodgrow-mcp/0.8.0 (hoodgrow-ts/0.11.0)");
 });
+
+test("ping hits the cheap smoke-test endpoint, not a metered data one", async () => {
+  // The whole point of ping is that a new integration can prove its
+  // wallet/signer/facilitator config against a real 402 for $0.001 instead
+  // of finding out during a $0.10 catalog call — so the URL is the
+  // assertion that matters here.
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          pong: true,
+          timestamp: "2026-08-14T00:00:00.000Z",
+          note: "x402 test endpoint",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.ping();
+      assert.equal(result.ok, true);
+      assert.equal(result.pong, true);
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/ping");
+});
+
+test("ping forwards an Idempotency-Key like every other metered call", async () => {
+  let capturedKey: string | null = null;
+  await withGlobalFetch(
+    mockFetch((url, init) => {
+      capturedKey =
+        (init?.headers as Record<string, string> | undefined)?.["Idempotency-Key"] ?? null;
+      return new Response(
+        JSON.stringify({ ok: true, pong: true, timestamp: "x", note: "y" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.ping({ idempotencyKey: "ping-key-1" });
+    }
+  );
+  assert.equal(capturedKey, "ping-key-1");
+});

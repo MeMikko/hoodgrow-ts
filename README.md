@@ -94,6 +94,7 @@ Exactly one of `apiKey` / `signer` is required.
 
 | Method | Price (x402) | Returns |
 | --- | --- | --- |
+| `ping()` | $0.001 | Nothing but `{ ok, pong }` — a live 402 to prove your payment path works before spending real money on data |
 | `getCatalog()` | $0.10 | Every listed token: price, source, 24h change, corporate-action adjusted supply, DeFi depth, plus catalog-wide pending/recent corporate actions |
 | `getToken(symbol)` | $0.05 | One token, same fields, scoped |
 | `getCorporateActions(symbol?)` | uses `getToken`/`getCatalog` above | `{ pending, recent }` — pass a symbol to scope, omit for every tracked token |

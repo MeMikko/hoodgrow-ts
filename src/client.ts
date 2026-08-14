@@ -18,6 +18,7 @@ import type {
   MarketsResponse,
   OhlcInterval,
   OhlcResponse,
+  PingResponse,
   RegisterCreditWebhookOptions,
   SlippageResponse,
   SlippageSide,
@@ -257,6 +258,20 @@ export class HoodGrowClient {
         body
       );
     }
+  }
+
+  /**
+   * Prove the payment path works, for a tenth of a cent. Carries no market
+   * data — it exists so a new x402 integration can hit a real live 402,
+   * settle it, and get a 200 back before it risks a $0.10 catalog call on
+   * an untested wallet, signer or facilitator config. $0.001/call via
+   * x402, free with an API key.
+   *
+   * Make this the first call from any new setup. Every other method is the
+   * "then what" once this one returns `{ ok: true }`.
+   */
+  async ping(opts?: RequestOptions): Promise<PingResponse> {
+    return this.request<PingResponse>("/api/agent/ping", opts);
   }
 
   /**
