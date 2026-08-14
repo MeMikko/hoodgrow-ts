@@ -37,12 +37,52 @@ const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
  * silently — which is exactly how the sibling MCP package ended up reporting
  * 0.4.0 while shipping 0.7.1.
  */
-export const SDK_VERSION = "0.12.0";
+export const SDK_VERSION = "0.13.0";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
 const NETWORK = "eip155:8453";
 /** Upper bound on any single 429 backoff wait, so a hostile/huge Retry-After
  * can't hang a caller indefinitely. */
 const MAX_RETRY_DELAY_MS = 30_000;
+
+/** USDC on Base has 6 decimals; x402 quotes amounts in atomic units. */
+const USDC_DECIMALS = 6;
+
+/**
+ * A USD ceiling as USDC atomic units, rounded UP.
+ *
+ * Rounding up on purpose: a ceiling of $0.10 must not reject a quote of
+ * exactly $0.10 because of binary floating point, and erring a hundredth of
+ * a cent high is harmless where erring low breaks legitimate calls.
+ */
+function usdToUsdcAtomic(usd: number): bigint {
+  return BigInt(Math.ceil(usd * 10 ** USDC_DECIMALS));
+}
+
+/**
+ * The price a 402 is asking, in atomic units — or null if this quote isn't
+ * one we can read.
+ *
+ * x402 v2 calls the field `amount`; v1 called it `maxAmountRequired`, and a
+ * policy is handed either depending on the protocol version the server
+ * answered with. Returning null for anything else is deliberate: the one
+ * caller filters on it, and an amount we cannot parse must not be treated
+ * as "cheap enough".
+ */
+function quotedAtomicAmount(requirement: unknown): bigint | null {
+  const r = requirement as { amount?: unknown; maxAmountRequired?: unknown };
+  const raw =
+    typeof r.amount === "string"
+      ? r.amount
+      : typeof r.maxAmountRequired === "string"
+        ? r.maxAmountRequired
+        : null;
+  if (raw === null) return null;
+  try {
+    return BigInt(raw);
+  } catch {
+    return null;
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -62,7 +102,7 @@ function retryAfterMs(header: string | null, attempt: number): number {
 
 export interface HoodGrowClientOptions {
   /**
-   * Bearer API key issued by HoodGrow (https://www.hoodgrow.com/api-access)
+   * Bearer API key, self-served at https://www.hoodgrow.com/profile
    * — calls are free (no x402 payment) and unrate-limited beyond the key's
    * own configured limit. Takes priority over `signer` if both are set.
    */
@@ -116,6 +156,23 @@ export interface HoodGrowClientOptions {
    * using the thrown error's context.
    */
   maxRetries?: number;
+  /**
+   * Refuse to pay more than this many US dollars for any single call.
+   *
+   * Enforced as an x402 payment policy, so an over-priced 402 is rejected
+   * *before* the signer produces a signature — no payment is made and the
+   * call fails instead. Without it this client pays whatever a 402 quotes,
+   * which is fine against a known-good API and not fine if that API is
+   * ever misconfigured or impersonated.
+   *
+   * No default, deliberately. `buyCredits()` legitimately pays $10–$200,
+   * so a built-in ceiling sized for the $0.05–$0.10 read endpoints would
+   * silently break bundle purchases. Set it to the most you are willing to
+   * spend on a single call, remembering that it applies to credit
+   * purchases too — a read-only agent might set `0.1`, while a client that
+   * also buys bundles needs it above the largest bundle.
+   */
+  maxPriceUsd?: number;
 }
 
 /** Per-call options accepted by the metered read methods. */
@@ -144,7 +201,7 @@ export class HoodGrowError extends Error {
 }
 
 /**
- * Client for the HoodGrow agent API (https://www.hoodgrow.com/api-access).
+ * Client for the HoodGrow agent API (https://docs.hoodgrow.com).
  * Construct with either `apiKey` (free, issued access) or `signer` (x402
  * pay-per-call, no signup) — exactly one is required.
  */
@@ -180,7 +237,26 @@ export class HoodGrowClient {
       this.headers.Authorization = `Bearer ${options.apiKey}`;
       this.fetchFn = fetch;
     } else if (options.signer) {
-      const client = new x402Client().register(NETWORK, new ExactEvmScheme(options.signer));
+      // A spend ceiling, when the caller sets one, is enforced as an x402
+      // payment policy: it filters the 402's payment requirements before a
+      // signature is ever produced, so an over-priced quote leaves nothing
+      // acceptable to pay rather than being paid and regretted after the
+      // fact. Without one this client settles whatever a 402 asks for.
+      const maxAtomic =
+        options.maxPriceUsd === undefined ? null : usdToUsdcAtomic(options.maxPriceUsd);
+      const client = x402Client.fromConfig({
+        schemes: [{ network: NETWORK, client: new ExactEvmScheme(options.signer) }],
+        policies:
+          maxAtomic === null
+            ? []
+            : [
+                (_version, requirements) =>
+                  requirements.filter((r) => {
+                    const amount = quotedAtomicAmount(r);
+                    return amount !== null && amount <= maxAtomic;
+                  }),
+              ],
+      });
       this.fetchFn = wrapFetchWithPayment(fetch, client);
     } else {
       throw new Error(
