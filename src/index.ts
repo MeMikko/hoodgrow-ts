@@ -37,6 +37,7 @@ export type {
   OhlcInterval,
   OhlcResponse,
   PendingCorporateAction,
+  PingResponse,
   PriceSource,
   RecentCorporateAction,
   RegisterCreditWebhookOptions,

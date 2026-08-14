@@ -1,6 +1,6 @@
 {
   "name": "hoodgrow",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "TypeScript SDK for the HoodGrow Robinhood Chain (and Base B20) stock token API — live price, corporate-action adjusted supply, DeFi depth (Morpho/Uniswap), and corporate actions. Pay per call via x402 (USDC on Base) or a bearer API key.",
   "type": "module",
   "main": "./dist/index.js",

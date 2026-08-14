@@ -69,6 +69,18 @@ export interface RecentCorporateAction {
   url: string;
 }
 
+/**
+ * GET /api/agent/ping — the payment-path smoke test. Carries no market
+ * data on purpose; `note` points at the endpoints that do.
+ */
+export interface PingResponse {
+  ok: boolean;
+  pong: boolean;
+  /** ISO timestamp the server answered at. */
+  timestamp: string;
+  note: string;
+}
+
 /** GET /api/agent/tokens — the full catalog. */
 export interface CatalogResponse {
   chainId: number;

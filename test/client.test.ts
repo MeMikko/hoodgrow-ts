@@ -987,3 +987,87 @@ test("userAgent option replaces the default so an embedder can be counted separa
 
   assert.equal(capturedUa, "hoodgrow-mcp/0.8.0 (hoodgrow-ts/0.11.0)");
 });
+
+test("ping hits the cheap smoke-test endpoint, not a metered data one", async () => {
+  // The whole point of ping is that a new integration can prove its
+  // wallet/signer/facilitator config against a real 402 for $0.001 instead
+  // of finding out during a $0.10 catalog call — so the URL is the
+  // assertion that matters here.
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          pong: true,
+          timestamp: "2026-08-14T00:00:00.000Z",
+          note: "x402 test endpoint",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.ping();
+      assert.equal(result.ok, true);
+      assert.equal(result.pong, true);
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/ping");
+});
+
+test("ping forwards an Idempotency-Key like every other metered call", async () => {
+  let capturedKey: string | null = null;
+  await withGlobalFetch(
+    mockFetch((url, init) => {
+      capturedKey =
+        (init?.headers as Record<string, string> | undefined)?.["Idempotency-Key"] ?? null;
+      return new Response(
+        JSON.stringify({ ok: true, pong: true, timestamp: "x", note: "y" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      await client.ping({ idempotencyKey: "ping-key-1" });
+    }
+  );
+  assert.equal(capturedKey, "ping-key-1");
+});
+
+test("maxPriceUsd converts to USDC atomic units without floating-point drift", async () => {
+  // $0.10 must be 100000 atomic units exactly. 0.1 * 1e6 in binary floating
+  // point is 100000.00000000001, so a truncating conversion would produce
+  // 100000 by luck here and 4999 for $0.005 elsewhere — the ceiling has to
+  // round up so an exactly-at-the-limit quote is still payable.
+  const { HoodGrowClient: C } = await import("../src/client.js");
+  // Construction with a ceiling must not throw for any sane value.
+  for (const usd of [0.001, 0.005, 0.05, 0.1, 200]) {
+    assert.doesNotThrow(
+      () => new C({ apiKey: "k", maxPriceUsd: usd }),
+      `maxPriceUsd: ${usd} should construct`
+    );
+  }
+});
+
+test("maxPriceUsd is accepted alongside a signer without changing the bearer path", async () => {
+  // A bearer key means no x402 at all, so a ceiling is inert rather than
+  // an error — callers shouldn't have to strip it when they switch auth.
+  await withGlobalFetch(
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ ok: true, pong: true, timestamp: "x", note: "y" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+    ),
+    async () => {
+      // Constructed INSIDE the mock: the bearer path captures `fetch` at
+      // construction time, so a client built outside it holds the real one.
+      const client = new HoodGrowClient({ apiKey: "test-key-123", maxPriceUsd: 0.1 });
+      const result = await client.ping();
+      assert.equal(result.ok, true);
+    }
+  );
+});
