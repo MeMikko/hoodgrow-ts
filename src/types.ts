@@ -40,6 +40,16 @@ export interface CatalogToken {
   supply: number | null;
   /** True when `supply` reflects the ERC-8056 uiMultiplier adjustment. */
   supplyAdjusted: boolean;
+  /**
+   * Distinct holding addresses at the latest explorer snapshot.
+   *
+   * `null` (not `0`) when no snapshot has been taken for this token yet —
+   * "not counted" and "has no holders" are different claims. For the trend,
+   * 24h delta and top-holder concentration, call `getHolders(symbol)`; this is
+   * the single number, carried here so a market table does not need one paid
+   * call per row to fill a column.
+   */
+  holderCount: number | null;
   snapshotTs: string | null;
 }
 

@@ -37,7 +37,7 @@ const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
  * silently — which is exactly how the sibling MCP package ended up reporting
  * 0.4.0 while shipping 0.7.1.
  */
-export const SDK_VERSION = "0.14.1";
+export const SDK_VERSION = "0.15.0";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
 const NETWORK = "eip155:8453";
 /** Upper bound on any single 429 backoff wait, so a hostile/huge Retry-After
