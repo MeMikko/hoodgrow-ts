@@ -34,6 +34,8 @@ export type {
   DefiMarket,
   DefiPool,
   HoldersResponse,
+  MarketsResponse,
+  MarketToken,
   OhlcCandle,
   OhlcInterval,
   OhlcResponse,
@@ -49,4 +51,7 @@ export type {
   TokenDetailResponse,
   TokenSummary,
   TopHolder,
+  Trade,
+  TradesResponse,
+  TradeSide,
 } from "./types.js";
