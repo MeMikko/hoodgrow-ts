@@ -19,8 +19,16 @@ export interface DefiInfo {
   uniswapPoolCount: number;
 }
 
-/** One token's price/supply data, as it appears in a catalog response. */
-export interface TokenSummary {
+/**
+ * One token's identity, price and supply — the shape the FREE catalog
+ * returns, and the shape `TokenDetailResponse.token` has always had.
+ *
+ * No `defi` field. The catalog used to carry one per token and no longer
+ * does: per-token DeFi depth moved to `getDefi(symbol)` (every Morpho market
+ * and Uniswap pool) when the catalog became free, and `getToken(symbol)`
+ * still returns a `defi` block alongside its `token`.
+ */
+export interface CatalogToken {
   symbol: string;
   name: string;
   /** On-chain contract address on Robinhood Chain (chain id 4663). */
@@ -33,8 +41,15 @@ export interface TokenSummary {
   /** True when `supply` reflects the ERC-8056 uiMultiplier adjustment. */
   supplyAdjusted: boolean;
   snapshotTs: string | null;
-  defi: DefiInfo;
 }
+
+/**
+ * @deprecated Renamed to `CatalogToken`, and its `defi` field is gone — the
+ * free catalog does not return one. Kept as an alias so an import does not
+ * break; a `.defi` access on a catalog entry will now fail to compile, which
+ * is the point: at runtime it was already `undefined`.
+ */
+export type TokenSummary = CatalogToken;
 
 /** A staged, not-yet-effective on-chain multiplier change — rare; only
  * large, price-discontinuity actions (a split) require it. Dividends do
@@ -85,19 +100,18 @@ export interface PingResponse {
 export interface CatalogResponse {
   chainId: number;
   updatedAt: string;
-  tokens: TokenSummary[];
+  tokens: CatalogToken[];
   pendingCorporateActions: PendingCorporateAction[];
   recentCorporateActions: RecentCorporateAction[];
 }
 
-/** GET /api/agent/token/{symbol} — one token. Note `defi` sits alongside
- * `token`, not nested inside it (unlike CatalogResponse, where each
- * catalog entry carries its own `defi`) — this mirrors the live API
- * exactly rather than normalizing the two shapes to match. */
+/** GET /api/agent/token/{symbol} — one token, with its DeFi depth. `defi`
+ * sits alongside `token` rather than inside it, mirroring the live API. This
+ * is the endpoint that carries DeFi at all: the free catalog does not. */
 export interface TokenDetailResponse {
   chainId: number;
   updatedAt: string;
-  token: Omit<TokenSummary, "defi">;
+  token: CatalogToken;
   defi: DefiInfo;
   pendingCorporateActions: PendingCorporateAction[];
   recentCorporateActions: RecentCorporateAction[];
@@ -133,8 +147,9 @@ export interface DefiPool {
 }
 
 /** GET /api/agent/defi/{symbol} — every Morpho market and Uniswap V3 pool
- * a token participates in, not just the single best-APY figure bundled
- * into CatalogResponse/TokenDetailResponse's `defi` field. */
+ * a token participates in, not just the single best-APY figure in
+ * TokenDetailResponse's `defi` field. The free catalog carries no DeFi
+ * fields at all, so this and getToken are where they live. */
 export interface DefiDetailResponse {
   chainId: number;
   symbol: string;

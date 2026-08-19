@@ -47,10 +47,12 @@ export const hoodgrowTools: readonly HoodGrowToolDefinition[] = [
   {
     name: "get_catalog",
     description:
-      "Full catalog of Robinhood Chain stock tokens: live price, corporate-action " +
-      "adjusted supply, DeFi depth (best Morpho supply APY, Uniswap V3 TVL), and " +
-      "pending/recent corporate actions for every listed token. $0.10 via x402, free " +
-      "with an API key — prefer get_token for a single symbol.",
+      "Free catalog and live price feed for all Robinhood Chain stock tokens. Use " +
+      "for token discovery, spot prices, and tracking market movers. Returns symbol, " +
+      "name, contract address, live price, price source, 24h change and " +
+      "corporate-action adjusted supply for every listed token, plus pending and " +
+      "recent corporate actions. No API key and no payment. Carries no per-token " +
+      "DeFi depth — use get_token or get_defi for that.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -58,8 +60,8 @@ export const hoodgrowTools: readonly HoodGrowToolDefinition[] = [
     description:
       "One Robinhood Chain stock token by symbol (e.g. NVDA): live price, " +
       "corporate-action adjusted supply, DeFi depth, and pending/recent corporate " +
-      "actions. Cheaper than get_catalog for a single spot check ($0.05 via x402, " +
-      "free with an API key). Fails for an unknown symbol.",
+      "actions. Unlike the free catalog this carries the token's DeFi depth ($0.05 " +
+      "via x402, free with an API key). Fails for an unknown symbol.",
     parameters: {
       type: "object",
       properties: { symbol: SYMBOL_PROP },
@@ -89,7 +91,7 @@ export const hoodgrowTools: readonly HoodGrowToolDefinition[] = [
     description:
       "Every Morpho lending market (as loan asset OR collateral, both roles labeled) " +
       "and Uniswap V3 pool involving one token — the full picture for comparing yield/" +
-      "borrow options, not just the single best-APY figure in get_catalog/get_token. " +
+      "borrow options, not just the single best-APY figure in get_token. " +
       "$0.05 via x402, free with an API key. Fails for an unknown symbol.",
     parameters: {
       type: "object",
