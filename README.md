@@ -95,7 +95,7 @@ Both are optional. With neither, `getCatalog()` still works — it is free — a
 | Method | Price (x402) | Returns |
 | --- | --- | --- |
 | `ping()` | $0.001 | Nothing but `{ ok, pong }` — a live 402 to prove your payment path works before spending real money on data |
-| `getCatalog()` | **free** | Every listed token: symbol, name, address, price, source, 24h change, corporate-action adjusted supply, plus catalog-wide pending/recent corporate actions. No per-token DeFi — see `getToken()` / `getDefi()` |
+| `getCatalog()` | **free** | Every listed token: symbol, name, address, price, source, 24h change, corporate-action adjusted supply, holder count, plus catalog-wide pending/recent corporate actions. No per-token DeFi — see `getToken()` / `getDefi()` |
 | `getToken(symbol)` | $0.05 | One token, same fields, scoped |
 | `getCorporateActions(symbol?)` | uses `getToken`/`getCatalog` above | `{ pending, recent }` — pass a symbol to scope, omit for every tracked token |
 | `getCorporateActionsFeed(options?)` | $0.05 | One page of the filterable, cursor-paginated corporate-actions **event log** (`options: { symbol?, contract?, status?, from?, to?, limit?, cursor? }`) — the cross-symbol append-only feed with detection metadata (block, tx hash, `detectedAt`), distinct from the pending/recent bundle above |
