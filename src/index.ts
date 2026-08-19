@@ -18,6 +18,7 @@ export type {
   BaseTokensResponse,
   BaseTokenStatus,
   CatalogResponse,
+  CatalogToken,
   CorporateActionEvent,
   CorporateActionFeedStatus,
   CorporateActions,

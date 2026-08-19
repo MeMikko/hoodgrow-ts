@@ -37,7 +37,7 @@ const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
  * silently — which is exactly how the sibling MCP package ended up reporting
  * 0.4.0 while shipping 0.7.1.
  */
-export const SDK_VERSION = "0.13.0";
+export const SDK_VERSION = "0.14.0";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
 const NETWORK = "eip155:8453";
 /** Upper bound on any single 429 backoff wait, so a hostile/huge Retry-After
@@ -110,8 +110,8 @@ export interface HoodGrowClientOptions {
   /**
    * A viem `LocalAccount` (e.g. from `privateKeyToAccount`, or a KMS/HSM-
    * backed custom account that can sign locally) used to auto-pay per
-   * call via x402 — USDC on Base, $0.10 for the full catalog, $0.05 for a
-   * single token. A JSON-RPC/browser-wallet account won't work here; x402
+   * call via x402 — USDC on Base, $0.05 for a single token and every other
+   * data endpoint (the full catalog is free and needs no signer at all). A JSON-RPC/browser-wallet account won't work here; x402
    * needs a signer that can sign typed data without a user prompt. Every
    * payment this client makes is real money; never hardcode a raw private
    * key in source, load it from an environment variable or secret
@@ -166,7 +166,7 @@ export interface HoodGrowClientOptions {
    * ever misconfigured or impersonated.
    *
    * No default, deliberately. `buyCredits()` legitimately pays $10–$200,
-   * so a built-in ceiling sized for the $0.05–$0.10 read endpoints would
+   * so a built-in ceiling sized for the $0.05 read endpoints would
    * silently break bundle purchases. Set it to the most you are willing to
    * spend on a single call, remembering that it applies to credit
    * purchases too — a read-only agent might set `0.1`, while a client that
@@ -202,8 +202,20 @@ export class HoodGrowError extends Error {
 
 /**
  * Client for the HoodGrow agent API (https://docs.hoodgrow.com).
- * Construct with either `apiKey` (free, issued access) or `signer` (x402
- * pay-per-call, no signup) — exactly one is required.
+ *
+ * Credentials are OPTIONAL. `new HoodGrowClient()` with no options is a
+ * working client: `getCatalog()` is free and needs nothing, and every other
+ * endpoint serves an anonymous per-IP daily allowance before it starts asking
+ * for payment. Once that allowance is spent, a call without credentials
+ * rejects with a 402 `HoodGrowError` whose `body` names the alternatives.
+ *
+ * This used to throw unless you passed one of them, which meant a caller had
+ * to obtain a key or fund a wallet before they could see a single response —
+ * on an API whose catalog costs nothing.
+ *
+ * Pass `apiKey` (free, issued at hoodgrow.com/profile) for a larger daily
+ * allowance, or `signer` (x402 pay-per-call, no signup) to settle payments
+ * automatically. `apiKey` wins if both are set.
  */
 export class HoodGrowClient {
   private readonly baseUrl: string;
@@ -259,9 +271,12 @@ export class HoodGrowClient {
       });
       this.fetchFn = wrapFetchWithPayment(fetch, client);
     } else {
-      throw new Error(
-        "HoodGrowClient requires either `apiKey` or `signer` — see https://github.com/MeMikko/hoodgrow-ts#readme"
-      );
+      // No credentials: a plain fetch, no Authorization header, no payment
+      // wrapper. The free catalog returns 200; the paid endpoints return 200
+      // until the anonymous per-IP allowance runs out and 402 after that.
+      // There is no signer to settle with, so a 402 surfaces as a
+      // HoodGrowError carrying the server's guidance rather than being paid.
+      this.fetchFn = fetch;
     }
   }
 
@@ -339,9 +354,9 @@ export class HoodGrowClient {
   /**
    * Prove the payment path works, for a tenth of a cent. Carries no market
    * data — it exists so a new x402 integration can hit a real live 402,
-   * settle it, and get a 200 back before it risks a $0.10 catalog call on
-   * an untested wallet, signer or facilitator config. $0.001/call via
-   * x402, free with an API key.
+   * settle it, and get a 200 back before it risks a real call on an untested
+   * wallet, signer or facilitator config. $0.001/call via x402, free with an
+   * API key.
    *
    * Make this the first call from any new setup. Every other method is the
    * "then what" once this one returns `{ ok: true }`.
@@ -351,19 +366,23 @@ export class HoodGrowClient {
   }
 
   /**
-   * The full token catalog — every listed Robinhood Chain stock token,
-   * with price, corporate-action adjusted supply, and DeFi depth.
-   * $0.10/call via x402, free with an API key.
+   * The full token catalog — every listed Robinhood Chain stock token, with
+   * its identity, price, 24h change and corporate-action adjusted supply,
+   * plus both corporate-action feeds.
+   *
+   * FREE. No key, no payment, no allowance spent — this works on a client
+   * constructed with no options at all. It carries no per-token DeFi depth:
+   * use `getToken(symbol)` or `getDefi(symbol)` for that.
    */
   async getCatalog(opts?: RequestOptions): Promise<CatalogResponse> {
     return this.request<CatalogResponse>("/api/agent/tokens", opts);
   }
 
   /**
-   * One token by symbol, e.g. "NVDA" — same fields as a catalog entry,
-   * cheaper than fetching the whole catalog for a spot check. $0.05/call
-   * via x402, free with an API key. Rejects with a 404 HoodGrowError for
-   * an unknown symbol.
+   * One token by symbol, e.g. "NVDA" — the same fields as a catalog entry
+   * PLUS that token's `defi` block, which the free catalog does not carry.
+   * $0.05/call via x402, free with an API key. Rejects with a 404
+   * HoodGrowError for an unknown symbol.
    */
   async getToken(symbol: string, opts?: RequestOptions): Promise<TokenDetailResponse> {
     return this.request<TokenDetailResponse>(

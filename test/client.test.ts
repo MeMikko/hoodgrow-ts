@@ -33,8 +33,62 @@ function withGlobalFetch<T>(fetchImpl: typeof fetch, fn: () => Promise<T>): Prom
   });
 }
 
-test("constructor throws without apiKey or signer", () => {
-  assert.throws(() => new HoodGrowClient(), /requires either `apiKey` or `signer`/);
+test("a client with no credentials works and sends no Authorization header", async () => {
+  // It used to throw here. That made a key or a funded wallet a prerequisite
+  // for seeing any response at all — on an API whose catalog is free.
+  let capturedAuth: string | null = null;
+  await withGlobalFetch(
+    mockFetch((_url, init) => {
+      capturedAuth =
+        (init?.headers as Record<string, string> | undefined)?.Authorization ?? null;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-08-19T00:00:00.000Z",
+          tokens: [],
+          pendingCorporateActions: [],
+          recentCorporateActions: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient();
+      await client.getCatalog();
+    }
+  );
+  assert.equal(capturedAuth, null);
+});
+
+test("a 402 on a credentialless client surfaces the server's guidance", async () => {
+  // With no signer there is nothing to settle a 402 with, so it must arrive
+  // as an error the caller can read — the body names the free key and the
+  // per-IP allowance, which is the whole point of that response.
+  const guidance = {
+    accepts: [{ price: "$0.05" }],
+    freeApiKey: { url: "https://www.hoodgrow.com/profile" },
+  };
+  await withGlobalFetch(
+    mockFetch(
+      () =>
+        new Response(JSON.stringify(guidance), {
+          status: 402,
+          headers: { "content-type": "application/json" },
+        })
+    ),
+    async () => {
+      const client = new HoodGrowClient();
+      await assert.rejects(
+        () => client.getToken("NVDA"),
+        (err: unknown) => {
+          const e = err as { status?: number; body?: typeof guidance };
+          assert.equal(e.status, 402);
+          assert.equal(e.body?.freeApiKey.url, "https://www.hoodgrow.com/profile");
+          return true;
+        }
+      );
+    }
+  );
 });
 
 test("getCatalog sends the API key as a Bearer header and hits the bulk endpoint", async () => {

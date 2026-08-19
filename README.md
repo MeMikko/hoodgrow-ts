@@ -29,7 +29,7 @@ const signer = privateKeyToAccount(process.env.AGENT_PRIVATE_KEY as `0x${string}
 
 const client = new HoodGrowClient({ signer });
 
-const catalog = await client.getCatalog(); // $0.10 — every token
+const catalog = await client.getCatalog(); // free — every token
 const nvda = await client.getToken("NVDA"); // $0.05 — one token
 ```
 
@@ -68,7 +68,7 @@ await payingClient.buyCredits("50"); // pay $50, receive $60 of credit
 
 // From then on: spend the balance instead of paying x402 per call.
 const client = new HoodGrowClient({ signer, useCredits: true });
-const catalog = await client.getCatalog(); // debits $0.10 from the balance, no on-chain tx
+const token = await client.getToken("NVDA"); // debits $0.05 from the balance, no on-chain tx
 
 const { balanceUsd } = await client.getCreditBalance(); // free, doesn't spend anything
 ```
@@ -90,12 +90,12 @@ new HoodGrowClient({
 })
 ```
 
-Exactly one of `apiKey` / `signer` is required.
+Both are optional. With neither, `getCatalog()` still works — it is free — and every other method serves an anonymous per-IP daily allowance before returning a 402.
 
 | Method | Price (x402) | Returns |
 | --- | --- | --- |
 | `ping()` | $0.001 | Nothing but `{ ok, pong }` — a live 402 to prove your payment path works before spending real money on data |
-| `getCatalog()` | $0.10 | Every listed token: price, source, 24h change, corporate-action adjusted supply, DeFi depth, plus catalog-wide pending/recent corporate actions |
+| `getCatalog()` | **free** | Every listed token: symbol, name, address, price, source, 24h change, corporate-action adjusted supply, plus catalog-wide pending/recent corporate actions. No per-token DeFi — see `getToken()` / `getDefi()` |
 | `getToken(symbol)` | $0.05 | One token, same fields, scoped |
 | `getCorporateActions(symbol?)` | uses `getToken`/`getCatalog` above | `{ pending, recent }` — pass a symbol to scope, omit for every tracked token |
 | `getCorporateActionsFeed(options?)` | $0.05 | One page of the filterable, cursor-paginated corporate-actions **event log** (`options: { symbol?, contract?, status?, from?, to?, limit?, cursor? }`) — the cross-symbol append-only feed with detection metadata (block, tx hash, `detectedAt`), distinct from the pending/recent bundle above |
@@ -113,7 +113,7 @@ Exactly one of `apiKey` / `signer` is required.
 | `registerCreditWebhook({ url, symbols? })` | free to register, then per delivered event | Register a credit-funded corporate-action webhook; requires `signer`. `symbols` restricts delivery (and billing) to those symbols — omit for all. Returns `{ webhookUrl, webhookSecret, webhookSymbols, note }` |
 
 Full response shapes are exported as types (`CatalogResponse`,
-`TokenDetailResponse`, `TokenSummary`, `DefiInfo`, `PendingCorporateAction`,
+`TokenDetailResponse`, `CatalogToken` (was `TokenSummary`), `DefiInfo`, `PendingCorporateAction`,
 `RecentCorporateAction`, `DefiDetailResponse`, `DefiMarket`, `DefiPool`,
 `HoldersResponse`, `TopHolder`, `SupplyChange24h`, `SlippageResponse`,
 `SlippagePoolResult`, `SlippageSide`, `OhlcResponse`, `OhlcCandle`,
@@ -244,7 +244,7 @@ out request can pay twice. Before pointing a signer at this client:
   user prompt.
 - HoodGrow's paywall only ever asks for USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
   on Base mainnet (`eip155:8453`), paid to
-  `0x8520B3693a2Cf3c2bEa3a505Af3A9c1b093954c7`, capped at $0.10/call — this
+  `0x8520B3693a2Cf3c2bEa3a505Af3A9c1b093954c7`, capped at $0.05/call — this
   client's underlying `@x402/fetch`/`@x402/evm` dependencies handle the
   protocol-level verification, but you're responsible for how much you fund
   the signing wallet with.
