@@ -90,7 +90,7 @@ new HoodGrowClient({
 })
 ```
 
-Both are optional. With neither, `getCatalog()` still works — it is free — and every other method serves an anonymous per-IP daily allowance before returning a 402.
+Both are optional. With neither, `getCatalog()` still works — it is free and unmetered — while every other method returns a 402 on the **first** call. There is no anonymous allowance in front of them any more: it was keyed on the caller's IP, and callers behind pooled egress got a fresh grant per address, so the paywall was never reached at all.
 
 | Method | Price (x402) | Returns |
 | --- | --- | --- |
