@@ -38,8 +38,36 @@ export interface CatalogToken {
   change24hPercent: number | null;
   /** Corporate-action adjusted supply when available, else raw totalSupply. */
   supply: number | null;
-  /** True when `supply` reflects the ERC-8056 uiMultiplier adjustment. */
+  /**
+   * True when `supply` reflects the ERC-8056 uiMultiplier adjustment — that
+   * the multiplier was READ and applied, not that the number moved. `true`
+   * alongside `uiMultiplier: 1` is the ordinary case for a token that has
+   * never had a corporate action.
+   */
   supplyAdjusted: boolean;
+  /**
+   * The live ERC-8056 multiplier as a ratio: `1` = never adjusted, `2` = a
+   * 2-for-1 split.
+   *
+   * This is what makes `supply` checkable. "5,362.39 adjusted" says nothing
+   * about how much adjusting happened; `5,359.36 × 1.000566` says all of it,
+   * and `supply === totalSupply * uiMultiplier` holds whenever both are
+   * present.
+   *
+   * `null` is a FAILED or absent read, never `1`. A token whose multiplier
+   * the server could not read is not a token that was never adjusted, and
+   * collapsing the two would throw away the distinction `supplyAdjusted`
+   * exists to draw. Do not default it to 1.
+   */
+  uiMultiplier: number | null;
+  /**
+   * Raw on-chain total supply, BEFORE the multiplier — the number
+   * `totalSupply()` returns.
+   *
+   * Carried because the adjustment cannot be inverted from `supply` alone.
+   * `null` when no snapshot has been recorded for this token yet.
+   */
+  totalSupply: number | null;
   /**
    * Distinct holding addresses at the latest explorer snapshot.
    *
