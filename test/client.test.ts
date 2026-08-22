@@ -1125,3 +1125,57 @@ test("maxPriceUsd is accepted alongside a signer without changing the bearer pat
     }
   );
 });
+
+test("getDefiSummary hits the collection endpoint, not a per-symbol one", async () => {
+  // The whole point of the method is that it is ONE call. A URL with a
+  // symbol appended would still return data and still typecheck; it would
+  // just quietly be the expensive shape this method exists to avoid.
+  let capturedUrl = "";
+  await withGlobalFetch(
+    mockFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          chainId: 4663,
+          updatedAt: "2026-08-22T00:00:00.000Z",
+          observedAt: "2026-08-21T23:55:00.000Z",
+          tokens: [
+            {
+              symbol: "NVDA",
+              morphoBestSupplyApy: 0.0482,
+              morphoBestSupplyApyMarketId: "0xabc",
+              uniswapTvlUsd: 842000,
+              uniswapVolume24hUsd: 152000,
+              uniswapPoolCount: 2,
+            },
+            {
+              symbol: "CRM",
+              morphoBestSupplyApy: null,
+              morphoBestSupplyApyMarketId: null,
+              uniswapTvlUsd: null,
+              uniswapVolume24hUsd: null,
+              uniswapPoolCount: 0,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }),
+    async () => {
+      const client = new HoodGrowClient({ apiKey: "test-key-123" });
+      const result = await client.getDefiSummary();
+
+      assert.equal(result.tokens.length, 2);
+      assert.equal(result.observedAt, "2026-08-21T23:55:00.000Z");
+
+      // A token with no DeFi is present with nulls rather than absent — the
+      // distinction the endpoint exists to preserve, carried through the SDK
+      // unchanged rather than normalised to zeros on the way past.
+      const crm = result.tokens.find((t) => t.symbol === "CRM");
+      assert.equal(crm?.morphoBestSupplyApy, null);
+      assert.equal(crm?.uniswapTvlUsd, null);
+      assert.equal(crm?.uniswapPoolCount, 0);
+    }
+  );
+  assert.equal(capturedUrl, "https://www.hoodgrow.com/api/agent/defi");
+});

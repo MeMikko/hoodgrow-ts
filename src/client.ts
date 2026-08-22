@@ -14,6 +14,7 @@ import type {
   CreditPurchaseAck,
   CreditWebhookRegistration,
   DefiDetailResponse,
+  DefiSummaryResponse,
   HoldersResponse,
   MarketsResponse,
   OhlcInterval,
@@ -37,7 +38,7 @@ const DEFAULT_BASE_URL = "https://www.hoodgrow.com";
  * silently — which is exactly how the sibling MCP package ended up reporting
  * 0.4.0 while shipping 0.7.1.
  */
-export const SDK_VERSION = "0.16.0";
+export const SDK_VERSION = "0.17.0";
 /** Base mainnet, CAIP-2 form — the only network HoodGrow's x402 paywall accepts. */
 const NETWORK = "eip155:8453";
 /** Upper bound on any single 429 backoff wait, so a hostile/huge Retry-After
@@ -457,6 +458,27 @@ export class HoodGrowClient {
       for (const action of page.actions) yield action;
       cursor = page.pagination.nextCursor ?? undefined;
     } while (cursor);
+  }
+
+  /**
+   * Best Morpho supply APY, Uniswap V3 TVL, 24h volume and pool count for
+   * EVERY listed token, in one call. $0.05/call via x402, free with an API
+   * key.
+   *
+   * Use this to build or rank a list. The alternative — `getDefi(symbol)`
+   * per row — is two hundred calls and about $10 to fill two columns, which
+   * in practice means the columns stay empty.
+   *
+   * It is not a cheaper `getDefi`. That one returns each market with its
+   * role and both APYs and each pool with its fee tier, and remains the
+   * right call when you are looking at one token.
+   *
+   * Every token appears, including those with no market and no pool; those
+   * carry nulls. Read `morphoBestSupplyApy: null` as "no market", never as
+   * 0%.
+   */
+  async getDefiSummary(opts?: RequestOptions): Promise<DefiSummaryResponse> {
+    return this.request<DefiSummaryResponse>("/api/agent/defi", opts);
   }
 
   /**
