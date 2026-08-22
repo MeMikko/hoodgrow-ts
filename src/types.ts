@@ -183,6 +183,42 @@ export interface DefiDetailResponse {
   uniswapPools: DefiPool[];
 }
 
+/** One token's DeFi position summarised — the shape a market table row needs,
+ * as opposed to the per-market/per-pool detail `DefiDetailResponse` carries. */
+export interface TokenDefiSummary {
+  symbol: string;
+  /**
+   * Best supply APY across every Morpho market this token is the loan asset
+   * of, as a RATIO — `0.0482` is 4.82%, not 4.82. `null` when it is in no
+   * market at all, which is NOT the same as 0%: a screener that reads the
+   * two the same way ranks a token that has nowhere to lend.
+   */
+  morphoBestSupplyApy: number | null;
+  /** Which market that APY came from, so the figure is checkable on-chain.
+   * Present even when `morphoBestSupplyApy` is null — a market can exist
+   * without a supply APY, and losing the id would lose that fact. */
+  morphoBestSupplyApyMarketId: string | null;
+  /** Summed across this token's Uniswap V3 pools. `null` (not 0) when it has
+   * no pool, or when no pool has an indexed value yet. */
+  uniswapTvlUsd: number | null;
+  uniswapVolume24hUsd: number | null;
+  /** Unlike the fields above, `0` here is a real count: it has no pools. */
+  uniswapPoolCount: number;
+}
+
+export interface DefiSummaryResponse {
+  chainId: number;
+  /** When this response was built. */
+  updatedAt: string;
+  /** When the underlying pool data was last observed — how old these figures
+   * actually are. `updatedAt` cannot answer that. */
+  observedAt: string | null;
+  /** Every listed token, including those with no market and no pool. Those
+   * carry nulls rather than being omitted, so "has no DeFi" stays
+   * distinguishable from "was not in the response". */
+  tokens: TokenDefiSummary[];
+}
+
 export interface TopHolder {
   address: string;
   balance: number;
