@@ -50,6 +50,21 @@ export interface CatalogToken {
    * call per row to fill a column.
    */
   holderCount: number | null;
+  /**
+   * Seven days of price, oldest first, one point per 12-hour bucket — enough
+   * to draw a sparkline for every row of a market table.
+   *
+   * Carried here for the same reason `holderCount` is, only more so: the
+   * alternative is `getOhlc(symbol)` once per token, which is roughly $10 to
+   * draw two hundred thumbnails. The server computes this series for its own
+   * directory anyway, so it costs nothing to read.
+   *
+   * An EMPTY array means too few observations to draw a line, not a flat
+   * price — a symbol below the server's minimum is left without a series
+   * rather than reduced to a two-point "trend". Render nothing, not a flat
+   * line.
+   */
+  spark7d: number[];
   snapshotTs: string | null;
 }
 
